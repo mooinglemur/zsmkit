@@ -1,0 +1,9 @@
+*.nes
+*.o
+*.sym
+*.map
+OLD/
+.swp
+*.dbg
+*.PRG
+*.BIN
