@@ -6,10 +6,6 @@ NUM_PRIORITIES = 4
 FILENAME_MAX_LENGTH = 64
 RINGBUFFER_SIZE = 1024
 
-.segment "ZEROPAGE"
-ptr:
-	.res 2
-
 .segment "BSS"
 zsmkit_bank: ; the RAM bank dedicated to ZSMKit to use for state
 	.res 1
@@ -372,15 +368,15 @@ prio:
 	lda streaming_mode,x
 	beq memory
 	lda ringbuffer_start_l,x
-	sta ptr
+	sta PTR
 	lda ringbuffer_start_h,x
-	sta ptr+1
+	sta PTR+1
 	bra note_loop
 memory:
 	lda zsm_ptr_l,x
-	sta ptr
+	sta PTR
 	lda zsm_ptr_h,x
-	sta ptr+1
+	sta PTR+1
 	
 note_loop:
 	jsr getzsmbyte
@@ -481,27 +477,28 @@ islooped:
 getzsmbyte:
 	lda zsm_ptr_bank,x
 	sta X16::Reg::RAMBank
-	lda (ptr)
+	lda $ffff
+PTR = *-2
 	pha
 	lda zsmkit_bank
 	sta X16::Reg::RAMBank
 	pla
 	rts
 advanceptr:
-	inc ptr
+	inc PTR
 	bne :+
-	inc ptr+1
-:	lda ptr+1
+	inc PTR+1
+:	lda PTR+1
 	bit streaming_mode,x
 	bpl @mem
 	cmp ringbuffer_end_page,x
 	bcc :+
 	lda ringbuffer_start_page,x
-	sta ptr+1
+	sta PTR+1
 	sta ringbuffer_start_h,x
 :   cmp ringbuffer_end_h,x
 	bcc :+
-	lda ptr
+	lda PTR
 	sta ringbuffer_start_l,x
 	cmp ringbuffer_end_l,x
 :	rts
@@ -510,10 +507,10 @@ advanceptr:
 	bcc :+
 	inc zsm_ptr_bank,x
 	lda #$a0
-	sta ptr+1
+	sta PTR+1
 	clc
 :	sta zsm_ptr_h,x
-	lda ptr
+	lda PTR
 	sta zsm_ptr_l,x
 	rts
 
