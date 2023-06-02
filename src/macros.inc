@@ -8,23 +8,18 @@ ROMBank = 1
 	php
 	pha
 	lda RAMBank
-	cmp zsmkit_bank
-	beq :+
 	sta saved_bank
 	lda zsmkit_bank
 	sta RAMBank
-:	pla
+	pla
 	plp
 .endmacro
 
 .macro PRESERVE_BANK_CLOBBER_A_P
 	lda RAMBank
-	cmp zsmkit_bank
-	beq :+
 	sta saved_bank
 	lda zsmkit_bank
 	sta RAMBank
-:
 .endmacro
 
 .macro RESTORE_BANK
@@ -36,29 +31,23 @@ ROMBank = 1
 	php
 	pha
 	lda RAMBank
-	cmp zsmkit_bank
-	beq :+
 	sta saved_bank_irq
 	lda zsmkit_bank
 	sta RAMBank
-:	pla
+	pla
 	plp
 .endmacro
 
 .macro PRESERVE_BANK_CLOBBER_A_P_IRQ
 	lda RAMBank
-	cmp zsmkit_bank
-	beq :+
 	sta saved_bank_irq
 	lda zsmkit_bank
 	sta RAMBank
-:
 .endmacro
 
 .macro RESTORE_BANK_IRQ
 	lda saved_bank_irq
 	sta RAMBank
 .endmacro
-
 
 .endif

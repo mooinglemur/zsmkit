@@ -2,6 +2,8 @@
 .include "audio.inc"
 .include "macros.inc"
 
+.macpack longbranch
+
 .export init_engine
 .export zsm_tick
 .export zsm_play
@@ -42,27 +44,6 @@ _ZSM_BANK_START := *
 ;
 ; offset = (priority * 1024)
 zsm_ringbuffers:        .res NUM_PRIORITIES*RINGBUFFER_SIZE
-
-;; offset = (priority)
-;opm_ne_nfrq_shadow:     .res NUM_PRIORITIES
-;opm_lfrq_shadow:        .res NUM_PRIORITIES
-;opm_amd_shadow:         .res NUM_PRIORITIES
-;opm_pmd_shadow:         .res NUM_PRIORITIES
-;opm_ct_w_shadow:        .res NUM_PRIORITIES
-;
-;; offset = (priority * 8) + (voice)
-;opm_rl_fb_con_shadow:   .res NUM_PRIORITIES*8
-;opm_kc_shadow:          .res NUM_PRIORITIES*8
-;opm_kf_shadow:          .res NUM_PRIORITIES*8
-;opm_pms_ams_shadow:	    .res NUM_PRIORITIES*8
-;
-;; offset = (priority * 32) + (operator * 8) + (voice)
-;opm_dt1_mul_shadow:	    .res NUM_PRIORITIES*4*8
-;opm_tl_shadow:          .res NUM_PRIORITIES*4*8
-;opm_ks_ar_shadow:       .res NUM_PRIORITIES*4*8
-;opm_amsen_d1r_shadow:   .res NUM_PRIORITIES*4*8
-;opm_dt2_d2r_shadow:     .res NUM_PRIORITIES*4*8
-;opm_d1l_rr_shadow:      .res NUM_PRIORITIES*4*8
 
 ; offset = priority*256
 opm_shadow:             .res NUM_PRIORITIES*256
@@ -820,9 +801,9 @@ prio:
 loop:
 	stx prio
 	lda prio_active,x
-	beq next
+	jeq next
 	lda streaming_mode,x
-	beq next
+	jeq next
 	lda streaming_finished,x
 	bne next
 	lda streaming_reopen,x
@@ -864,6 +845,7 @@ loadit:
 	lda streaming_lfn_sa,x
 	tax
 	jsr X16::Kernal::CHKIN
+	ldx prio
 	ldy ringbuffer_end_h,x
 	lda ringbuffer_end_l,x
 	tax
@@ -873,8 +855,10 @@ loadit:
 	bcs error
 	txa
 	ldx prio
+	adc ringbuffer_end_l,x
 	sta ringbuffer_end_l,x
-	tya
+	lda ringbuffer_end_h,x
+	adc #0
 	cmp ringbuffer_end_page,x ; non-inclusive
 	bcc :+
 	lda ringbuffer_start_page,x ; we wrap now
@@ -1068,6 +1052,12 @@ noerr2:
 	stz delay_l,x
 	stz delay_h,x
 
+	stz ringbuffer_start_l,x
+	stz ringbuffer_end_l,x
+	lda ringbuffer_start_page,x
+	sta ringbuffer_start_h,x
+	sta ringbuffer_end_h,x
+
 	; non-zero loop point sets loop_enable
 	lda streaming_loop_point_l,x
 	ora streaming_loop_point_m,x
@@ -1204,9 +1194,10 @@ prio:
 ; Must only be called from main loop routines.
 .proc _open_zsm: near
 
+	stx prio ; save priority locally
+
 	; make sure handle (lfn) is closed
 	lda streaming_lfn_sa,x
-	stx prio ; save priority locally
 	jsr X16::Kernal::CLOSE
 	ldx prio
 
@@ -1259,6 +1250,7 @@ FP = *-2
 
 	jsr X16::Kernal::SETNAM
 
+	ldx prio
 	lda streaming_dev,x
 	tax
 	lda #15
@@ -1270,7 +1262,6 @@ FP = *-2
 	ldx #15
 	jsr X16::Kernal::CHKIN
 	jsr X16::Kernal::BASIN
-	stp
 	pha ; preserve byte read
 	jsr X16::Kernal::READST
 	and #$40
@@ -1280,6 +1271,8 @@ FP = *-2
 	cmp #'0'
 	bne error
 	jsr X16::Kernal::CLRCHN
+	lda #15
+	jsr X16::Kernal::CLOSE
 	ldx prio
 	clc
 	rts
@@ -1312,7 +1305,7 @@ ringbuffer_start_page:
 
 ringbuffer_end_page: ; non-inclusive
 .repeat NUM_PRIORITIES, i
-	.byte $A0+(i+1*(RINGBUFFER_SIZE >> 8))
+	.byte $A0+((i+1)*(RINGBUFFER_SIZE >> 8))
 .endrepeat
 
 times_fn_max_length:

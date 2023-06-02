@@ -32,10 +32,10 @@ oldirq:
 	ldy #>filename
 	ldx #0
 	jsr zsmkit::zsm_setfile
-	jsr zsmkit::zsm_fill_buffers
-	jsr zsmkit::zsm_fill_buffers
 	ldx #0
 	jsr zsmkit::zsm_play
+	jsr zsmkit::zsm_fill_buffers
+	jsr zsmkit::zsm_fill_buffers
 
 loop:
 	wai
