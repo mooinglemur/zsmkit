@@ -289,7 +289,7 @@ prioloop:
 	ldx prio
 	dex
 	stx prio
-	bne prioloop
+	bpl prioloop
 
 	; restore VERA state
 	lda #$ff
@@ -387,6 +387,8 @@ nextnote:
 	bmi note_loop
 exit:
 	rts
+plaxerror:
+	pla
 plxerror:
 	plx
 error:
@@ -400,10 +402,11 @@ isdata:
 	bcs isopm
 	; is psg
 	phx
-	tax
+	pha
 	jsr advanceptr
-	bcs plxerror
+	bcs plaxerror
 	jsr getzsmbyte
+	plx
 	jsr psg_write_fast
 	sta vera_psg_shadow,x ; operand is overwritten at sub entry
 PS = *-2
@@ -436,10 +439,11 @@ opmloop:
 	bcs error
 	jsr getzsmbyte
 	phx
-	tax
+	pha
 	jsr advanceptr
-	bcs plxerror
+	bcs plaxerror
 	jsr getzsmbyte
+	plx
 	phy
 	jsr ym_write
 	ply
@@ -481,6 +485,7 @@ advanceptr:
 :	lda PTR+1
 	bit streaming_mode,x
 	bpl @mem
+	sta ringbuffer_start_h,x
 	cmp ringbuffer_end_page,x
 	bcc :+
 	lda ringbuffer_start_page,x
@@ -491,7 +496,10 @@ advanceptr:
 	lda PTR
 	sta ringbuffer_start_l,x
 	cmp ringbuffer_end_l,x
-:	rts
+	rts
+:	lda PTR
+	sta ringbuffer_start_l,x
+	rts
 @mem:
 	cmp #$c0
 	bcc :+
@@ -805,15 +813,36 @@ loop:
 	lda streaming_mode,x
 	jeq next
 	lda streaming_finished,x
-	bne next
+	jne next
 	lda streaming_reopen,x
 	beq no_reopen
 
 	jsr _open_zsm ; does not clobber x
 
 	stz streaming_reopen,x
-	bra next
+	jmp next
 no_reopen:
+
+	ldx prio
+	lda ringbuffer_start_h,x
+	jsr _print_hex
+	ldx prio
+	lda ringbuffer_start_l,x
+	jsr _print_hex
+
+	lda #' '
+	jsr X16::Kernal::BSOUT
+
+	ldx prio
+	lda ringbuffer_end_h,x
+	jsr _print_hex
+	ldx prio
+	lda ringbuffer_end_l,x
+	jsr _print_hex
+	lda #$0d
+	jsr X16::Kernal::BSOUT
+	ldx prio
+
 	; find the amount of free ring buffer space
 	lda ringbuffer_end_h,x
 	cmp ringbuffer_start_h,x
@@ -821,6 +850,10 @@ no_reopen:
 mode1:
 	; end is greater than or equal to start
 	; (right boundary of load is high ring boundary)
+	lda ringbuffer_start_h,x
+	clc
+	adc #(ringbuffer_end_page-ringbuffer_start_page)
+	sta stop_before
 	lda ringbuffer_end_page,x ; non-inclusive
 	clc ; we're going to subtract one extra intentionally
 	sbc ringbuffer_end_h,x
@@ -830,16 +863,25 @@ mode1:
 mode2:
 	; start is greater than end
 	; (right boundary of load is end of page one page before start)
-	lda ringbuffer_start_h,x ; non-inclusive
+	lda ringbuffer_start_h,x
+	sta stop_before
 	clc ; we're going to subtract one extra intentionally
 	sbc ringbuffer_end_h,x
 	beq shortpage
 	lda #255 ; max less than one page
 	bra loadit
 shortpage:
+	; but first test if we need to skip the load entirely
+	lda stop_before
+	clc
+	sbc ringbuffer_end_h,x
+	beq next ; skip the load, not enough ring buffer
 	; read to the end of the page
 	lda #$ff
 	eor ringbuffer_end_l,x
+	inc
+	bne loadit
+	dec ; except when we'd ask for 256 bytes.  Ask for 255 instead
 loadit:
 	pha ; save requested byte count
 	lda streaming_lfn_sa,x
@@ -898,6 +940,8 @@ finish:
 
 	bra next
 prio:
+	.byte 0
+stop_before:
 	.byte 0
 .endproc
 
@@ -1069,6 +1113,9 @@ noerr2:
 	lda #$80
 	sta streaming_mode,x
 
+	lda zsmkit_bank
+	sta zsm_ptr_bank,x
+
 	jsr _calculate_speed ; X = prio
 
 exit:
@@ -1139,8 +1186,8 @@ prio:
 	sta tmp2+2
 	; initialize divisor to 60
 	lda #60
-	sta tmp3+1
-	stz tmp3
+	sta tmp3
+	stz tmp3+1
 
 	; 24 bits in the dividend
 	ldx #24
@@ -1296,6 +1343,28 @@ prio:
 	.byte 0
 seekpoint:
 	.byte 'P', $00, $00, $00, $00, $00
+.endproc
+
+.proc _print_hex: near
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda table,y	
+	jsr X16::Kernal::BSOUT
+
+	pla
+	and #$0f
+	tay
+	lda table,y	
+	jsr X16::Kernal::BSOUT
+
+	rts
+
+table:
+	.byte "0123456789ABCDEF"
 .endproc
 
 ringbuffer_start_page:
