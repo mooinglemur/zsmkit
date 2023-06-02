@@ -2,6 +2,15 @@
 .include "audio.inc"
 .include "macros.inc"
 
+.export init_engine
+.export zsm_tick
+.export zsm_play
+.export zsm_fill_buffers
+.export zsm_setlfs
+.export zsm_setfile
+.export zsm_setmem
+
+
 NUM_PRIORITIES = 4
 FILENAME_MAX_LENGTH = 64
 RINGBUFFER_SIZE = 1024
@@ -644,7 +653,7 @@ opmnext:
 	stz opm_restore_shadow,x
 	inx
 	stx voice
-	cmp #8
+	cpx #8
 	bcc opmloop
 
 
@@ -686,7 +695,7 @@ psgnext:
 	stz vera_psg_restore_shadow,x
 	inx
 	stx voice
-	cmp #16
+	cpx #16
 	bcc psgloop
 
 	rts
@@ -752,7 +761,7 @@ opmvoice:
 nextopm:
 	iny
 	inx
-	cmp #8
+	cpx #8
 	bcc opmloop
 
 	; psg voices
@@ -776,7 +785,7 @@ psgvoice:
 nextpsg:
 	iny
 	inx
-	cmp #16
+	cpx #16
 	bcc psgloop
 
 	; indicate prio is now active
@@ -853,6 +862,7 @@ shortpage:
 loadit:
 	pha ; save requested byte count
 	lda streaming_lfn_sa,x
+	tax
 	jsr X16::Kernal::CHKIN
 	ldy ringbuffer_end_h,x
 	lda ringbuffer_end_l,x
@@ -982,7 +992,7 @@ done:
 	jmp exit
 :
 	; parse header
-	lda streaming_lfn_sa
+	lda streaming_lfn_sa,x
 	tax
 	jsr X16::Kernal::CHKIN
 
@@ -1259,8 +1269,8 @@ FP = *-2
 
 	ldx #15
 	jsr X16::Kernal::CHKIN
-
 	jsr X16::Kernal::BASIN
+	stp
 	pha ; preserve byte read
 	jsr X16::Kernal::READST
 	and #$40
