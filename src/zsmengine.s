@@ -419,9 +419,9 @@ isdata:
 	bcs plxerror
 	jsr getzsmbyte
 	jsr psg_write_fast
-	plx
 	sta vera_psg_shadow,x ; operand is overwritten at sub entry
 PS = *-2
+	plx
 	bra nextnote
 iseod:
 	lda loop_enable,x
@@ -444,13 +444,25 @@ isext:
 	bra nextnote
 isopm:
 	and #$3f
-
-	; XXX left off here
-
+	tay
+opmloop:
+	jsr advanceptr
+	bcs error
+	jsr getzsmbyte
+	phx
+	tax
+	jsr advanceptr
+	bcs plxerror
+	jsr getzsmbyte
+	phy
+	jsr ym_write
+	ply
 	sta opm_shadow,x ; operand is overwritten at sub entry
-OS = *-2
-
-
+OS = *-1
+	plx
+	dey
+	bne opmloop
+	bra nextnote
 islooped:
 	; if we're in streaming mode, we basically ignore the eod
 	; and assume there's valid ZSM data that's been fetched
@@ -464,7 +476,7 @@ islooped:
 	sta zsm_ptr_l,x
 	lda zsm_loop_h,x
 	sta zsm_ptr_h,x
-	bra note_loop
+	jmp note_loop
 
 getzsmbyte:
 	lda zsm_ptr_bank,x
@@ -523,42 +535,42 @@ advanceptr:
 	lda recheck_priorities
 	beq exit
 
-	ldy #0
+	ldx #0
 opmloop:
-	ldx opm_priority,y
-	cpx #NUM_PRIORITIES ; $fe or $ff, most likely
+	ldy opm_priority,x
+	cpy #NUM_PRIORITIES ; $fe or $ff, most likely
 	bcs opmnext
-	lda prio_faulted,x
+	lda prio_faulted,y
 	bne opmswitch
-	lda prio_active,x
+	lda prio_active,y
 	bne opmnext
 opmswitch:
 	lda #$80
-	sta opm_restore_shadow,y
-	dec opm_priority,y ; see if the next lower priority is active
+	sta opm_restore_shadow,x
+	dec opm_priority,x ; see if the next lower priority is active
 	bra opmloop
 opmnext:
-	iny
-	cpy #8
+	inx
+	cpx #8
 	bne opmloop
 
-	ldy #0
+	ldx #0
 psgloop:
-	ldx vera_psg_priority,y
-	cpx #NUM_PRIORITIES ; $fe or $ff, most likely
+	ldy vera_psg_priority,x
+	cpy #NUM_PRIORITIES ; $fe or $ff, most likely
 	bcs psgnext
-	lda prio_faulted,x
+	lda prio_faulted,y
 	bne psgswitch
-	lda prio_active,x
+	lda prio_active,y
 	bne psgnext
 psgswitch:
 	lda #$80
-	sta vera_psg_restore_shadow,y
-	dec vera_psg_priority,y ; see if the next lower priority is active
+	sta vera_psg_restore_shadow,x
+	dec vera_psg_priority,x ; see if the next lower priority is active
 	bra psgloop
 psgnext:
-	iny
-	cpy #16
+	inx
+	cpx #16
 	bne psgloop
 
 	stz recheck_priorities
