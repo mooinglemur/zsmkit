@@ -189,6 +189,10 @@ vera_psg_priority:       .res 16
 opm_restore_shadow:      .res 8
 vera_psg_restore_shadow: .res 16
 
+; the flag to indicate that we need to re-evaluate the priorities
+; since it's likely a song is no longer playing
+recheck_priorities:      .res 1
+
 _ZSM_BANK_END := *
 
 
@@ -290,6 +294,7 @@ prioloop:
 	lda #$f9
 	sta Vera::Reg::AddrM
 
+	jsr _reprio
 	jsr _reshadow
 	ldx #NUM_PRIORITIES-1
 	stx prio
@@ -351,6 +356,19 @@ prio:
 	sta delay_h,x
 	bpl exit ; no events this tick
 
+	; set up the shadow writes
+	lda times_64,x
+	adc #<vera_psg_shadow
+	sta PS
+	lda #>vera_psg_shadow
+	adc #0
+	sta PS+1
+
+	txa
+	clc
+	adc #>opm_shadow
+	sta OS
+
 	lda streaming_mode,x
 	beq memory
 	lda ringbuffer_start_l,x
@@ -365,13 +383,7 @@ memory:
 	sta ptr+1
 	
 note_loop:
-	lda zsm_ptr_bank,x
-	sta X16::Reg::RAMBank
-	lda (ptr)
-	pha
-	lda zsmkit_bank
-	sta X16::Reg::RAMBank
-	pla
+	jsr getzsmbyte
 	bpl isdata
 	cmp #$80 ; eod?
 	beq iseod
@@ -380,23 +392,89 @@ note_loop:
 	clc
 	adc delay_l,x
 	sta delay_l,x
-	bcc :+
+	bcc nextnote
 	inc delay_h,x
-:	jsr advanceptr	
+nextnote:
+	jsr advanceptr	
 	bcs error
 	lda delay_h,x
 	bmi note_loop
 exit:
 	rts
+plxerror:
+	plx
 error:
 	lda #$80
 	sta prio_faulted,x
-	jmp _recalc_voice_prios
+	sta recheck_priorities
+	rts
 isdata:
-
+	cmp #$40
+	beq isext
+	bcs isopm
+	; is psg
+	phx
+	tax
+	jsr advanceptr
+	bcs plxerror
+	jsr getzsmbyte
+	jsr psg_write_fast
+	plx
+	sta vera_psg_shadow,x ; operand is overwritten at sub entry
+PS = *-2
+	bra nextnote
 iseod:
+	lda loop_enable,x
+	bne islooped
+	lda #$80
+	sta prio_active,x
+	rts
+isext:
+	jsr advanceptr
+	bcs error
+	jsr getzsmbyte
+	and #$3f
+	; eat the data bytes, up to 63 of them
+	tay
+	beq nextnote
+:	jsr advanceptr
+	bcs error
+	dey
+	bne :-
+	bra nextnote
+isopm:
+	and #$3f
+
+	; XXX left off here
+
+	sta opm_shadow,x ; operand is overwritten at sub entry
+OS = *-2
 
 
+islooped:
+	; if we're in streaming mode, we basically ignore the eod
+	; and assume there's valid ZSM data that's been fetched
+	; for us immediately afterwards
+	lda streaming_mode,x
+	bne nextnote
+	; if it's memory, we just repoint the pointer
+	lda zsm_loop_bank,x
+	sta zsm_ptr_bank,x
+	lda zsm_loop_l,x
+	sta zsm_ptr_l,x
+	lda zsm_loop_h,x
+	sta zsm_ptr_h,x
+	bra note_loop
+
+getzsmbyte:
+	lda zsm_ptr_bank,x
+	sta X16::Reg::RAMBank
+	lda (ptr)
+	pha
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+	pla
+	rts
 advanceptr:
 	inc ptr
 	bne :+
@@ -429,6 +507,64 @@ advanceptr:
 
 .endproc
 
+;............
+; _reprio   :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; 
+; processes any voice switch events that are needed chiefly due to songs no
+; longer running, setting up for the reshadow
+;
+.proc _reprio: near
+	lda recheck_priorities
+	beq exit
+
+	ldy #0
+opmloop:
+	ldx opm_priority,y
+	cpx #NUM_PRIORITIES ; $fe or $ff, most likely
+	bcs opmnext
+	lda prio_faulted,x
+	bne opmswitch
+	lda prio_active,x
+	bne opmnext
+opmswitch:
+	lda #$80
+	sta opm_restore_shadow,y
+	dec opm_priority,y ; see if the next lower priority is active
+	bra opmloop
+opmnext:
+	iny
+	cpy #8
+	bne opmloop
+
+	ldy #0
+psgloop:
+	ldx vera_psg_priority,y
+	cpx #NUM_PRIORITIES ; $fe or $ff, most likely
+	bcs psgnext
+	lda prio_faulted,x
+	bne psgswitch
+	lda prio_active,x
+	bne psgnext
+psgswitch:
+	lda #$80
+	sta vera_psg_restore_shadow,y
+	dec vera_psg_priority,y ; see if the next lower priority is active
+	bra psgloop
+psgnext:
+	iny
+	cpy #16
+	bne psgloop
+
+	stz recheck_priorities
+exit:
+	rts
+.endproc
 
 ;............
 ; _reshadow :
@@ -451,7 +587,7 @@ opmloop:
 
 	lda opm_priority,x
 	cmp #NUM_PRIORITIES
-	bcs opmnext ; this shouldn't happen
+	bcs opmnext ; this happens immediately after a voice stops but no other song is taking over
 
 	; set release phase to $ff for this voice
 	lda #$ff
@@ -511,7 +647,7 @@ psgloop:
 
 	lda vera_psg_priority,x
 	cmp #NUM_PRIORITIES
-	bcs psgnext ; this shouldn't happen
+	bcs psgnext ; this happens immediately after a voice stops but no other song is taking over
 
 	tax
 	lda times_64,x
@@ -747,6 +883,7 @@ error:
 	lda #$80
 	ldx prio
 	sta prio_faulted,x
+	sta recheck_priorities
 finish:
 	jsr X16::Kernal::CLRCHN
 	ldx prio
@@ -937,6 +1074,7 @@ error:
 	lda #$80
 	sta prio_faulted,x
 	sta streaming_finished,x
+	sta recheck_priorities
 	sec
 	bra exit
 prio:
@@ -1139,6 +1277,7 @@ error:
 	lda #$80
 	sta prio_faulted,x
 	sta streaming_finished,x
+	sta recheck_priorities
 	sec	
 	rts
 prio:
