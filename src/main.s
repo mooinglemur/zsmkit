@@ -26,6 +26,12 @@ oldirq:
 	lda #1
 	jsr zsmkit::init_engine
 
+	lda #2
+	sta Vera::Reg::Ctrl
+	lda #($A0-1)
+	sta Vera::Reg::DCHStop
+	stz Vera::Reg::Ctrl
+
 	jsr setup_handler
 
 	lda #<filename
@@ -38,7 +44,10 @@ oldirq:
 	jsr zsmkit::zsm_fill_buffers
 
 loop:
+	stz Vera::Reg::DCBorder
 	wai
+	lda #1
+	sta Vera::Reg::DCBorder
 	jsr zsmkit::zsm_fill_buffers
 	bra loop
 filename:
@@ -64,6 +73,8 @@ filename:
 .endproc
 
 .proc irqhandler
+	lda #35
+	sta Vera::Reg::DCBorder
 	jsr zsmkit::zsm_tick
 	jmp (oldirq)
 .endproc

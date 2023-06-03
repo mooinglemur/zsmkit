@@ -375,6 +375,7 @@ note_loop:
 	beq iseod
 	; is delay
 	and #$7f
+	cmp #$30
 	clc
 	adc delay_l,x
 	sta delay_l,x
@@ -394,6 +395,7 @@ plxerror:
 error:
 	lda #$80
 	sta prio_faulted,x
+	stz prio_active,x
 	sta recheck_priorities
 	rts
 isdata:
@@ -492,13 +494,14 @@ advanceptr:
 	sta PTR+1
 	sta ringbuffer_start_h,x
 :   cmp ringbuffer_end_h,x
-	bcc :+
+	bne :+
 	lda PTR
 	sta ringbuffer_start_l,x
 	cmp ringbuffer_end_l,x
 	rts
 :	lda PTR
 	sta ringbuffer_start_l,x
+	clc
 	rts
 @mem:
 	cmp #$c0
@@ -823,24 +826,39 @@ loop:
 	jmp next
 no_reopen:
 
-	ldx prio
-	lda ringbuffer_start_h,x
-	jsr _print_hex
-	ldx prio
-	lda ringbuffer_start_l,x
-	jsr _print_hex
-
-	lda #' '
-	jsr X16::Kernal::BSOUT
-
-	ldx prio
-	lda ringbuffer_end_h,x
-	jsr _print_hex
-	ldx prio
-	lda ringbuffer_end_l,x
-	jsr _print_hex
-	lda #$0d
-	jsr X16::Kernal::BSOUT
+;	ldx prio
+;	lda ringbuffer_start_h,x
+;	jsr _print_hex
+;	ldx prio
+;	lda ringbuffer_start_l,x
+;	jsr _print_hex
+;
+;	lda #' '
+;	jsr X16::Kernal::BSOUT
+;
+;	ldx prio
+;	lda ringbuffer_end_h,x
+;	jsr _print_hex
+;	ldx prio
+;	lda ringbuffer_end_l,x
+;	jsr _print_hex
+;
+;	lda #' '
+;	jsr X16::Kernal::BSOUT
+;
+;	ldx prio
+;	lda delay_h,x
+;	jsr _print_hex
+;	ldx prio
+;	lda delay_l,x
+;	jsr _print_hex
+;	ldx prio
+;	lda delay_f,x
+;	jsr _print_hex
+;
+;
+;	lda #$0d
+;	jsr X16::Kernal::BSOUT
 	ldx prio
 
 	; find the amount of free ring buffer space
@@ -875,8 +893,12 @@ shortpage:
 	lda stop_before
 	clc
 	sbc ringbuffer_end_h,x
-	beq next ; skip the load, not enough ring buffer
-	; read to the end of the page
+	bne :+
+	lda ringbuffer_end_l,x
+	bne next ; skip the load, not enough ring buffer
+	lda #$ff
+	bra loadit
+:	; read to the end of the page
 	lda #$ff
 	eor ringbuffer_end_l,x
 	inc
