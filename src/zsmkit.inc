@@ -5,3 +5,4 @@
 .import zsm_setlfs
 .import zsm_setfile
 .import zsm_setmem
+.import zsm_setatten

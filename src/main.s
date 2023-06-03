@@ -49,13 +49,13 @@ loop:
 	lda #1
 	sta Vera::Reg::DCBorder
 	jsr zsmkit::zsm_fill_buffers
-	lda frames
+	lda frames1
 	bne :+
-	dec frames+1
-:	dec frames
-	lda frames
-	ora frames+1
-	bne loop
+	dec frames1+1
+:	dec frames1
+	lda frames1
+	ora frames1+1
+	bne check2
 	lda #'!'
 	jsr X16::Kernal::BSOUT
 	lda #<filename2
@@ -66,12 +66,38 @@ loop:
 	jsr zsmkit::zsm_play
 	jsr zsmkit::zsm_fill_buffers
 	bra loop
+check2:
+	lda frames2
+	bne :+
+	dec frames2+1
+:	dec frames2
+	lda frames2
+	ora frames2+1
+	bne loop
+	lda #'!'
+	jsr X16::Kernal::BSOUT
+	lda #<filename3
+	ldy #>filename3
+	ldx #2
+	jsr zsmkit::zsm_setfile
+	ldx #2
+	jsr zsmkit::zsm_play
+	jsr zsmkit::zsm_fill_buffers
+	ldx #1
+	lda #$20
+	jsr zsmkit::zsm_setatten
+	bra loop
+
 filename:
-	.byte "LIVINGROCKS.ZSM",0
+	.byte "SONG1.ZSM",0
 filename2:
-	.byte "FANFARE.ZSM",0
-frames:
+	.byte "SONG2.ZSM",0
+filename3:
+	.byte "SONG3.ZSM",0
+frames1:
 	.word 600
+frames2:
+	.word 1800
 .endproc
 
 .segment "CODE"

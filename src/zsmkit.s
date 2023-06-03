@@ -11,13 +11,14 @@
 .export zsm_setlfs
 .export zsm_setfile
 .export zsm_setmem
+.export zsm_setatten
 
 
 NUM_PRIORITIES = 4
 FILENAME_MAX_LENGTH = 64
 RINGBUFFER_SIZE = 1024
 
-.segment "BSS"
+.segment "ZSMKITLIB"
 zsmkit_bank: ; the RAM bank dedicated to ZSMKit to use for state
 	.res 1
 saved_bank: ; used for preserving the bank in main loop calls
@@ -30,7 +31,7 @@ tmp1 := buff
 tmp2 := buff+3
 tmp3 := buff+6
 
-.segment "ZSMKIT"
+.segment "ZSMKITBANK"
 _ZSM_BANK_START := *
 
 ; To support the option of streaming ZSM data from SD card,
@@ -182,7 +183,7 @@ recheck_priorities:      .res 1
 _ZSM_BANK_END := *
 
 
-.segment "CODE"
+.segment "ZSMKITLIB"
 ;..............
 ; init_engine :
 ;============================================================================
@@ -539,9 +540,9 @@ _ym_write:
 	txa ; >= $20 the voice is the low 3 bits of the register
 @key:
 	and #$07
-@cz:
 	tay
 	lda opm_priority,y
+@cz:
 	cmp prio
 	bne @skip
 	pla
@@ -631,6 +632,22 @@ exit:
 .proc _reshadow: near
 	ldx #0
 	stx voice
+
+	lda times_16,x
+	clc
+	adc #<vera_psg_atten_shadow
+	sta PASR
+	lda #>vera_psg_atten_shadow
+	adc #0
+	sta PASR+1
+
+	lda times_8,x
+	adc #<opm_atten_shadow
+	sta OASR
+	lda #>opm_atten_shadow
+	adc #0
+	sta OASR+1
+
 opmloop:
 	lda opm_restore_shadow,x
 	beq opmnext
@@ -669,7 +686,10 @@ opmloop:
 	adc #>opm_shadow
 	sta OH
 
-	ldx #$20
+	lda #$20
+	clc
+	adc voice
+	tax
 shopmloop:
 	lda opm_shadow,x
 OH = *-1
@@ -680,6 +700,11 @@ OH = *-1
 	tax
 	bcc shopmloop
 
+	ldy voice
+	ldx opm_atten_shadow,y
+OASR = *-2
+	tya
+	jsr ym_setatten
 opmnext:
 	ldx voice
 	stz opm_restore_shadow,x
@@ -722,6 +747,12 @@ PL = *-2
 	dey
 	bne shpsgloop
 
+	ldy voice
+	ldx vera_psg_atten_shadow,y
+PASR = *-2
+	tya
+	jsr psg_setatten
+
 psgnext:
 	ldx voice
 	stz vera_psg_restore_shadow,x
@@ -732,6 +763,86 @@ psgnext:
 
 	rts
 voice:
+	.byte 0
+.endproc
+
+;...............
+; zsm_setatten :
+;============================================================================
+; Arguments: .X = priority, A. = value
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the attenuation value of a song.  $00 = full volume, $3F = muted
+.proc zsm_setatten: near
+	sta val
+	stx prio
+
+	PRESERVE_BANK_CLOBBER_A_P
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0a
+	sta X16::Reg::ROMBank
+
+	lda times_16,x
+	clc
+	adc #<vera_psg_atten_shadow
+	sta PAS
+	lda #>vera_psg_atten_shadow
+	adc #0
+	sta PAS+1
+
+	lda times_8,x
+	adc #<opm_atten_shadow
+	sta OAS
+	lda #>opm_atten_shadow
+	adc #0
+	sta OAS+1
+
+	ldy #0
+psgloop:
+	lda vera_psg_priority,y
+	cmp prio
+	bne :+
+	ldx val
+	tya
+	phy
+	jsr psg_setatten
+	ply 
+:	lda val
+	sta vera_psg_atten_shadow,y
+PAS = *-2
+	iny
+	cpy #16
+	bne psgloop
+
+	ldy #0
+opmloop:
+	lda opm_priority,y
+	cmp prio
+	bne :+
+	ldx val
+	tya
+	phy
+	jsr ym_setatten
+	ply 
+:	lda val
+	sta opm_atten_shadow,y
+OAS = * -2
+	iny
+	cpy #8
+	bne opmloop
+
+exit:
+	pla
+	sta X16::Reg::ROMBank
+	RESTORE_BANK
+	rts
+prio:
+	.byte 0
+val:
 	.byte 0
 .endproc
 
@@ -923,6 +1034,8 @@ loadit:
 	bcs error
 	txa
 	ldx prio
+	php ; mask interrupts while changing the lo/hi of end
+	sei
 	adc ringbuffer_end_l,x
 	sta ringbuffer_end_l,x
 	lda ringbuffer_end_h,x
@@ -931,6 +1044,7 @@ loadit:
 	bcc :+
 	lda ringbuffer_start_page,x ; we wrap now
 :	sta ringbuffer_end_h,x
+	plp ; restore interrupt mask state
 	; now check for EOI
 	jsr X16::Kernal::READST
 	and #$40
