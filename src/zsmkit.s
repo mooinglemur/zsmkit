@@ -825,42 +825,6 @@ loop:
 	stz streaming_reopen,x
 	jmp next
 no_reopen:
-
-;	ldx prio
-;	lda ringbuffer_start_h,x
-;	jsr _print_hex
-;	ldx prio
-;	lda ringbuffer_start_l,x
-;	jsr _print_hex
-;
-;	lda #' '
-;	jsr X16::Kernal::BSOUT
-;
-;	ldx prio
-;	lda ringbuffer_end_h,x
-;	jsr _print_hex
-;	ldx prio
-;	lda ringbuffer_end_l,x
-;	jsr _print_hex
-;
-;	lda #' '
-;	jsr X16::Kernal::BSOUT
-;
-;	ldx prio
-;	lda delay_h,x
-;	jsr _print_hex
-;	ldx prio
-;	lda delay_l,x
-;	jsr _print_hex
-;	ldx prio
-;	lda delay_f,x
-;	jsr _print_hex
-;
-;
-;	lda #$0d
-;	jsr X16::Kernal::BSOUT
-	ldx prio
-
 	; find the amount of free ring buffer space
 	lda ringbuffer_end_h,x
 	cmp ringbuffer_start_h,x

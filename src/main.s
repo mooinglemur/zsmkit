@@ -49,9 +49,27 @@ loop:
 	lda #1
 	sta Vera::Reg::DCBorder
 	jsr zsmkit::zsm_fill_buffers
+	lda frames
+	bne :+
+	dec frames+1
+:	dec frames
+	lda frames
+	ora frames+1
+	bne loop
+	lda #<filename2
+	ldy #>filename2
+	ldx #1
+	jsr zsmkit::zsm_setfile
+	ldx #1
+	jsr zsmkit::zsm_play
+	jsr zsmkit::zsm_fill_buffers
 	bra loop
 filename:
 	.byte "LIVINGROCKS.ZSM",0
+filename2:
+	.byte "FANFARE.ZSM",0
+frames:
+	.word 600
 .endproc
 
 .segment "CODE"
