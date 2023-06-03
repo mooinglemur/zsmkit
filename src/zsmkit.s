@@ -403,22 +403,23 @@ isdata:
 	beq isext
 	bcs isopm
 	; is psg
-	phx
+	stx prio
 	pha
 	jsr advanceptr
 	bcs plaxerror
 	jsr getzsmbyte
 	plx
-	jsr psg_write_fast
 	sta vera_psg_shadow,x ; operand is overwritten at sub entry
 PS = *-2
-	plx
+	jsr _psg_write
+	ldx prio
 	bra nextnote
 iseod:
 	lda loop_enable,x
 	bne islooped
+	stz prio_active,x
 	lda #$80
-	sta prio_active,x
+	sta recheck_priorities
 	rts
 isext:
 	jsr advanceptr
@@ -440,27 +441,27 @@ opmloop:
 	jsr advanceptr
 	bcs error
 	jsr getzsmbyte
-	phx
+	stx prio
 	pha
 	jsr advanceptr
 	bcs plaxerror
 	jsr getzsmbyte
 	plx
-	phy
-	jsr ym_write
-	ply
 	sta opm_shadow,x ; operand is overwritten at sub entry
 OS = *-1
-	plx
+	phy
+	jsr _ym_write
+	ply
+	ldx prio
 	dey
 	bne opmloop
-	bra nextnote
+	jmp nextnote
 islooped:
 	; if we're in streaming mode, we basically ignore the eod
 	; and assume there's valid ZSM data that's been fetched
 	; for us immediately afterwards
 	lda streaming_mode,x
-	bne nextnote
+	jne nextnote
 	; if it's memory, we just repoint the pointer
 	lda zsm_loop_bank,x
 	sta zsm_ptr_bank,x
@@ -515,6 +516,45 @@ advanceptr:
 	sta zsm_ptr_l,x
 	rts
 
+_psg_write:
+	pha ; preserve value
+	txa ; register
+	lsr
+	lsr ; now it's voice
+	tay
+	lda vera_psg_priority,y
+	cmp prio
+	bne :+
+	pla ; restore value
+	jmp psg_write_fast
+:	pla ; restore value
+	rts
+
+_ym_write:
+	pha ; preserve value
+	cpx #$08
+	beq @key ; register 8 is key-off/key-on, and value => voice
+	cpx #$20
+	bcc @zero ; other registers < $20 are owned by prio 0
+	txa ; >= $20 the voice is the low 3 bits of the register
+@key:
+	and #$07
+@cz:
+	tay
+	lda opm_priority,y
+	cmp prio
+	bne @skip
+	pla
+	jmp ym_write
+@zero:
+	lda #0
+	bra @cz
+@skip:
+	pla ; restore value
+	rts
+
+prio:
+	.byte 0
 .endproc
 
 ;............
@@ -743,8 +783,8 @@ opmloop:
 	cmp #$ff
 	beq opmvoice
 	cmp prio
-	beq nextopm
-	bcc nextopm
+;	beq nextopm
+	bcs nextopm
 opmvoice:
 	lda #$80
 	sta opm_restore_shadow,x
@@ -768,7 +808,7 @@ psgloop:
 	beq psgvoice
 	cmp prio
 ;	beq nextpsg ; XXX should never happen
-	bcc nextpsg
+	bcs nextpsg
 psgvoice:
 	lda #$80
 	sta vera_psg_restore_shadow,x

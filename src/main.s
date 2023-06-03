@@ -56,6 +56,8 @@ loop:
 	lda frames
 	ora frames+1
 	bne loop
+	lda #'!'
+	jsr X16::Kernal::BSOUT
 	lda #<filename2
 	ldy #>filename2
 	ldx #1
