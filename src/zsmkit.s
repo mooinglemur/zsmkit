@@ -582,6 +582,15 @@ opmloop:
 	lda prio_faulted,y
 	bne opmswitch
 	lda prio_active,y
+	beq opmswitch
+	lda times_8,y
+	adc #<opm_voice_mask
+	sta OVM
+	lda #>opm_voice_mask
+	adc #0
+	sta OVM+1
+	lda opm_voice_mask,x
+OVM = * -2
 	bne opmnext
 opmswitch:
 	lda #$80
@@ -601,6 +610,15 @@ psgloop:
 	lda prio_faulted,y
 	bne psgswitch
 	lda prio_active,y
+	beq psgswitch
+	lda times_16,y
+	adc #<vera_psg_voice_mask
+	sta PVM
+	lda #>vera_psg_voice_mask
+	adc #0
+	sta PVM+1
+	lda vera_psg_voice_mask,x
+PVM = * -2
 	bne psgnext
 psgswitch:
 	lda #$80
