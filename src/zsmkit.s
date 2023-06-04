@@ -652,21 +652,6 @@ exit:
 	ldx #0
 	stx voice
 
-	lda times_16,x
-	clc
-	adc #<vera_psg_atten_shadow
-	sta PASR
-	lda #>vera_psg_atten_shadow
-	adc #0
-	sta PASR+1
-
-	lda times_8,x
-	adc #<opm_atten_shadow
-	sta OASR
-	lda #>opm_atten_shadow
-	adc #0
-	sta OASR+1
-
 opmloop:
 	lda opm_restore_shadow,x
 	beq opmnext
@@ -698,8 +683,17 @@ opmloop:
 	jsr ym_release
 
 	; reshadow all parameters
-	ldx voice
-	lda opm_priority,x
+	ldy voice
+	ldx opm_priority,y
+
+	lda times_8,x
+	adc #<opm_atten_shadow
+	sta OASR
+	lda #>opm_atten_shadow
+	adc #0
+	sta OASR+1
+
+	lda opm_priority,y	
 
 	clc
 	adc #>opm_shadow
@@ -730,7 +724,7 @@ opmnext:
 	inx
 	stx voice
 	cpx #8
-	bcc opmloop
+	jcc opmloop
 
 
 	ldx #0
@@ -750,6 +744,17 @@ psgloop:
 	lda #>vera_psg_shadow
 	adc #0
 	sta PL+1
+
+	ldy voice
+	ldx vera_psg_priority,y
+
+	lda times_16,x
+	clc
+	adc #<vera_psg_atten_shadow
+	sta PASR
+	lda #>vera_psg_atten_shadow
+	adc #0
+	sta PASR+1
 
 	lda voice
 	asl
@@ -925,6 +930,8 @@ opmnext:
 
 	ldx prio
 	stz prio_active,x
+	lda #$80
+	sta recheck_priorities
 
 exit:
 	plp ; restore interrupt mask state
