@@ -7,6 +7,7 @@
 .export init_engine
 .export zsm_tick
 .export zsm_play
+.export zsm_stop
 .export zsm_fill_buffers
 .export zsm_setlfs
 .export zsm_setfile
@@ -864,6 +865,76 @@ val:
 	.byte 0
 .endproc
 
+
+;...........
+; zsm_stop :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Stops or pauses a song priority.  For in-memory songs, nothing else is needed
+; for cleanup.  For streaming priorities, the file is held open until `zsm_close`
+; is called
+.proc zsm_stop: near
+	PRESERVE_BANK_CLOBBER_A_P
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0a
+	sta X16::Reg::ROMBank
+	php ; mask interrupts while we clean up
+	sei
+
+	lda prio_active,x
+	beq exit
+
+	stx prio
+
+	ldy #0
+psgloop:
+	lda vera_psg_priority,y
+	cmp prio
+	bne psgnext
+	phy
+	tya
+	ldx #0
+	jsr psg_setvol
+	ply
+psgnext:
+	iny
+	cpy #16
+	bne psgloop
+
+	ldy #0
+opmloop:
+	lda opm_priority,y
+	cmp prio
+	bne opmnext
+	phy
+	tya
+	ldx #8
+	jsr ym_write
+	; perhaps we should set fast release here too
+	ply
+opmnext:
+	iny
+	cpy #8
+	bne opmloop
+
+	ldx prio
+	stz prio_active,x
+
+exit:
+	plp ; restore interrupt mask state
+	pla
+	sta X16::Reg::ROMBank
+	RESTORE_BANK
+	rts
+prio:
+	.byte 0
+.endproc
 
 ;...........
 ; zsm_play :

@@ -1,3 +1,5 @@
+.macpack longbranch
+
 .include "x16.inc"
 
 .segment "LOADADDR"
@@ -73,7 +75,7 @@ check2:
 :	dec frames2
 	lda frames2
 	ora frames2+1
-	bne loop
+	bne check3
 	lda #'!'
 	jsr X16::Kernal::BSOUT
 	lda #<filename3
@@ -86,7 +88,22 @@ check2:
 	ldx #1
 	lda #$20
 	jsr zsmkit::zsm_setatten
+	ldx #1
+	jsr zsmkit::zsm_stop
 	bra loop
+check3:
+	lda frames3
+	bne :+
+	dec frames3+1
+:	dec frames3
+	lda frames3
+	ora frames3+1
+	jne loop
+	lda #'!'
+	ldx #1
+	jsr zsmkit::zsm_play
+	jmp loop
+
 
 filename:
 	.byte "SONG1.ZSM",0
@@ -98,6 +115,8 @@ frames1:
 	.word 600
 frames2:
 	.word 1800
+frames3:
+	.word 2100
 .endproc
 
 .segment "CODE"
