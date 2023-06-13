@@ -8,6 +8,7 @@
 .export zsm_tick
 .export zsm_play
 .export zsm_stop
+.export zsm_close
 .export zsm_fill_buffers
 .export zsm_setlfs
 .export zsm_setfile
@@ -39,7 +40,7 @@ _ZSM_BANK_START := *
 ; ZSMKit allocates 1k for each of the four priorities.
 ; These ring buffers are fed by calling `zsm_fill_buffers`
 ; in the program's main loop. In the event of an underrun,
-; the engine will halt the song and mark it as faulted.
+; the engine will halt the song and mark it as not playable.
 ;
 ; The ring buffers for the four priorities are located at:
 ; 0:$A000 1:$A400 2:$A800 3:$AC00
@@ -74,8 +75,10 @@ vera_psg_voice_mask:    .res NUM_PRIORITIES*16
 prio_active:            .res NUM_PRIORITIES
 
 ; Did the player encounter a fault of some sort?
-; This is set nonzero whenever that happens
-prio_faulted:           .res NUM_PRIORITIES
+; This is set zero whenever that happens
+; It is set nonzero when a file is loaded and
+; is ready
+prio_playable:          .res NUM_PRIORITIES
 
 ; Is the song fully in memory or played through a 1k ring buffer?
 ; zero = traditional memory storage, nonzero = ring buffer
@@ -396,9 +399,9 @@ plxerror:
 	plx
 error:
 	lda #$80
-	sta prio_faulted,x
-	stz prio_active,x
 	sta recheck_priorities
+	stz prio_playable,x
+	stz prio_active,x
 	rts
 isdata:
 	cmp #$40
@@ -469,8 +472,10 @@ islooped:
 	sta zsm_ptr_bank,x
 	lda zsm_loop_l,x
 	sta zsm_ptr_l,x
+	sta PTR
 	lda zsm_loop_h,x
 	sta zsm_ptr_h,x
+	sta PTR+1
 	jmp note_loop
 
 getzsmbyte:
@@ -580,8 +585,8 @@ opmloop:
 	ldy opm_priority,x
 	cpy #NUM_PRIORITIES ; $fe or $ff, most likely
 	bcs opmnext
-	lda prio_faulted,y
-	bne opmswitch
+	lda prio_playable,y
+	beq opmswitch
 	lda prio_active,y
 	beq opmswitch
 	lda times_8,y
@@ -608,8 +613,8 @@ psgloop:
 	ldy vera_psg_priority,x
 	cpy #NUM_PRIORITIES ; $fe or $ff, most likely
 	bcs psgnext
-	lda prio_faulted,y
-	bne psgswitch
+	lda prio_playable,y
+	beq psgswitch
 	lda prio_active,y
 	beq psgswitch
 	lda times_16,y
@@ -799,9 +804,19 @@ voice:
 ; Allowed in interrupt handler: no
 ; ---------------------------------------------------------------------------
 ;
-; Sets the attenuation value of a song.  $00 = full volume, $3F = muted
+; Sets the attenuation value of a song.  $00 = full volume, $3F-7F = muted
+; At $3F, the OPM is very close to muted and the PSG is definitely muted
+; At $7F, both will be muted
 .proc zsm_setatten: near
+	; psg steps are 0.5dB
+	; opm steps are 0.75dB
 	sta val
+	lsr
+	sta valopm
+	lda val
+	sec
+	sbc valopm
+	sta valopm
 	stx prio
 
 	PRESERVE_BANK_CLOBBER_A_P
@@ -825,6 +840,9 @@ voice:
 	adc #0
 	sta OAS+1
 
+	php ; protect critical section
+	sei
+
 	ldy #0
 psgloop:
 	lda vera_psg_priority,y
@@ -847,17 +865,19 @@ opmloop:
 	lda opm_priority,y
 	cmp prio
 	bne :+
-	ldx val
+	ldx valopm
 	tya
 	phy
 	jsr ym_setatten
 	ply 
-:	lda val
+:	lda valopm
 	sta opm_atten_shadow,y
 OAS = * -2
 	iny
 	cpy #8
 	bne opmloop
+
+	plp
 
 exit:
 	pla
@@ -868,8 +888,87 @@ prio:
 	.byte 0
 val:
 	.byte 0
+valopm:
+	.byte 0
 .endproc
 
+;.............
+; zsm_rewind :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; stops playback if necessary and resets the song pointer to the beginning
+;
+.proc zsm_rewind: near
+	stx prio
+	PRESERVE_BANK_CLOBBER_A_P
+	lda prio_active,x
+	beq :+
+	RESTORE_BANK
+	jsr zsm_stop
+	PRESERVE_BANK_CLOBBER_A_P
+	ldx prio
+:
+	lda streaming_mode,x
+	beq memory
+	stz prio_playable,x
+	jsr _open_and_parse
+
+	ldx prio
+	bra cont
+memory:	
+	lda zsm_start_l,x
+	sta zsm_ptr_l,x
+	lda zsm_start_h,x
+	sta zsm_ptr_h,x
+	lda zsm_start_bank,x
+	sta zsm_ptr_bank,x
+	
+cont:
+	RESTORE_BANK
+	rts
+prio:
+	.byte 0
+.endproc
+
+
+;............
+; zsm_close :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; closes streaming songs, sets priority to unused/not playable
+;
+.proc zsm_close: near
+	stx prio
+	PRESERVE_BANK_CLOBBER_A_P
+	lda prio_active,x
+	beq :+
+	RESTORE_BANK
+	jsr zsm_stop
+	PRESERVE_BANK_CLOBBER_A_P
+	ldx prio
+:
+	lda streaming_mode,x
+	beq :+
+	lda streaming_lfn_sa,x
+	jsr X16::Kernal::CLOSE
+	ldx prio
+:	stz prio_playable,x
+
+	RESTORE_BANK
+	rts
+prio:
+	.byte 0
+.endproc
 
 ;...........
 ; zsm_stop :
@@ -959,8 +1058,8 @@ prio:
 	lda prio_active,x
 	bne exit ; already playing
 
-	lda prio_faulted,x
-	bne exit
+	lda prio_playable,x
+	beq exit
 
 	lda streaming_finished,x
 	bne exit
@@ -990,7 +1089,6 @@ opmloop:
 	cmp #$ff
 	beq opmvoice
 	cmp prio
-;	beq nextopm
 	bcs nextopm
 opmvoice:
 	lda #$80
@@ -1014,7 +1112,6 @@ psgloop:
 	cmp #$ff
 	beq psgvoice
 	cmp prio
-;	beq nextpsg ; XXX should never happen
 	bcs nextpsg
 psgvoice:
 	lda #$80
@@ -1161,9 +1258,9 @@ next:
 	RESTORE_BANK
 	rts
 error:
-	lda #$80
 	ldx prio
-	sta prio_faulted,x
+	stz prio_playable,x
+	lda #$80
 	sta recheck_priorities
 finish:
 	jsr X16::Kernal::CLRCHN
@@ -1224,7 +1321,6 @@ stop_before:
 .proc zsm_setfile: near
 	sta ZSF1
 	sty ZSF1+1
-	stx prio
 	PRESERVE_BANK_CLOBBER_A_P
 
 	lda times_fn_max_length,x
@@ -1246,6 +1342,27 @@ ZSF2 = *-2
 done:
 	tya
 	sta streaming_filename_len,x
+	stz prio_playable,x
+
+	jsr _open_and_parse
+	RESTORE_BANK
+	rts
+.endproc
+
+;..................
+; _open_and_parse :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; internal function that opens the associated file and, and parses the header
+;
+; Must only be called from main loop routines.
+
+.proc _open_and_parse: near
+	stx prio
 
 	stz streaming_loop_point_l,x
 	stz streaming_loop_point_m,x
@@ -1348,6 +1465,7 @@ noerr2:
 
 	lda #$80
 	sta streaming_mode,x
+	sta prio_playable,x
 
 	lda zsmkit_bank
 	sta zsm_ptr_bank,x
@@ -1355,7 +1473,6 @@ noerr2:
 	jsr _calculate_speed ; X = prio
 
 exit:
-	RESTORE_BANK
 	rts
 error:
 	jsr X16::Kernal::CLRCHN
@@ -1364,9 +1481,9 @@ error:
 	jsr X16::Kernal::CLOSE
 	ldx prio
 	lda #$80
-	sta prio_faulted,x
 	sta streaming_finished,x
 	sta recheck_priorities
+	stz prio_playable,x
 	sec
 	bra exit
 prio:
@@ -1387,7 +1504,167 @@ prio:
 ;
 ; Must only be called from main loop routines.
 .proc zsm_setmem: near
+	sta ZM1
+	sta buff+16
+	sty ZM1+1
+	sty buff+17
+	lda X16::Reg::RAMBank
+	sta buff+18
+
+	PRESERVE_BANK_CLOBBER_A_P
+
+	stx prio
+	lda prio_active,x
+	beq :+
+
+	RESTORE_BANK
+
+	jsr zsm_close ; will also stop
+:	RESTORE_BANK
+	ldy #0
+hdrloop: ; copy the header to our low ram buffer
+	lda $ffff
+ZM1 = *-2
+	sta buff,y
+	inc ZM1
+	bne :+
+	inc ZM1+1
+:	lda ZM1+1
+	cmp #$c0
+	bcc :+
+	sbc #$20
+	sta ZM1+1
+	inc X16::Reg::RAMBank
+:	iny
+	cpy #16
+	bcc hdrloop
+
+	ldy zsmkit_bank ; switch back to our bank and copy the values out of the buffer into the state
+	sty X16::Reg::RAMBank
+
+	ldx prio
+	lda buff+18
+	sta zsm_start_bank,x
+	sta zsm_ptr_bank,x
+	lda ZM1
+	sta zsm_start_l,x
+	sta zsm_ptr_l,x
+	lda ZM1+1
+	sta zsm_start_h,x
+	sta zsm_ptr_h,x
+
+	lda buff
+	cmp #$7a ; 'z'
+	bne err1
+
+	lda buff+1
+	cmp #$6d ; 'm'
+	bne err1
+
+	lda buff+2 ; version (1)
+	cmp #1
+	beq noerr1
+
+err1:
+	stz prio_playable,x
+	sec
 	rts
+
+noerr1:
+
+	lda buff+5 ; loop point [23:16]
+	asl        ; each of these is
+	asl        ; worth 64 k
+	asl        ; or 8 banks
+	clc
+	adc buff+18 ; start bank
+	sta zsm_loop_bank,x
+
+	lda buff+4 ; loop point [15:8]
+	lsr        ; each of these
+	lsr        ; is worth a page
+	lsr        ; and 32 of them
+	lsr        ; is worth
+	lsr        ; one 8k bank
+	clc
+	adc zsm_loop_bank,x
+	sta zsm_loop_bank,x
+
+	lda buff+4 ; keep the remainder
+	and #$1f   ; which when added to the start
+	sta buff+19 ; will be < $ff
+
+	lda buff+3 ; loop point [7:0]
+	clc
+	adc buff+16 ; start of zsm data (LSB)
+	sta zsm_loop_l,x
+	lda buff+19 ; loop point [12:8]
+	adc buff+17 ; start of zsm data (MSB)
+:	cmp #$c0    ; if we're past
+	bcc :+
+	sbc #$20    ; subtract $20
+	inc zsm_loop_bank,x ; and increment bank
+	bra :-
+:	sta zsm_loop_h,x ; and we're done figuring out the loop point
+
+
+	lda buff+3  ; but do we even loop at all?
+	ora buff+4
+	ora buff+5
+	cmp #1
+	stz loop_enable,x
+	ror loop_enable,x
+
+	; ignore buff offset 6 7 8 (PCM offset)
+
+	; FM channel mask
+	lda buff+9
+	ldy prio
+	ldx times_8,y
+.repeat 8,i
+	lsr
+	stz opm_voice_mask+i,x
+	ror opm_voice_mask+i,x
+.endrepeat
+
+	; PSG channel mask
+	lda buff+10
+	ldx times_16,y
+.repeat 8,i
+	lsr
+	stz vera_psg_voice_mask+i,x
+	ror vera_psg_voice_mask+i,x
+.endrepeat
+	lda buff+11
+.repeat 8,i
+	lsr
+	stz vera_psg_voice_mask+i+8,x
+	ror vera_psg_voice_mask+i+8,x
+.endrepeat
+
+	; ZSM tick rate
+	lda buff+12
+	sta tick_rate_l,y
+	lda buff+13
+	sta tick_rate_h,y
+
+	; 14 and 15 are reserved bytes
+	; finish setup of state
+	ldx prio
+	stz delay_f,x
+	stz delay_l,x
+	stz delay_h,x	
+
+	stz streaming_mode,x
+	lda #$80
+	sta prio_playable,x
+
+	jsr _calculate_speed
+
+	RESTORE_BANK
+	rts
+prio:
+	.byte 0
 .endproc
 
 ;...................
@@ -1570,9 +1847,9 @@ error:
 	jsr X16::Kernal::CLOSE
 	ldx prio
 	lda #$80
-	sta prio_faulted,x
 	sta streaming_finished,x
 	sta recheck_priorities
+	stz prio_playable,x
 	sec	
 	rts
 prio:

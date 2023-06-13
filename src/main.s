@@ -36,14 +36,37 @@ oldirq:
 
 	jsr setup_handler
 
-	lda #<filename
+	lda #2
+	sta X16::Reg::RAMBank
+
+	lda #filename2-filename-1
+	ldx #<filename
 	ldy #>filename
-	ldx #0
-	jsr zsmkit::zsm_setfile
+
+	jsr X16::Kernal::SETNAM
+
+	lda #2
+	ldx #8
+	ldy #2
+	jsr X16::Kernal::SETLFS
+
+	ldx #$00
+	ldy #$a0
+	lda #0
+
+	jsr X16::Kernal::LOAD
+
+	lda #2
+	sta X16::Reg::RAMBank
+
+	lda #$00
+	ldy #$a0
+
+	ldx #0	
+	jsr zsmkit::zsm_setmem
+
 	ldx #0
 	jsr zsmkit::zsm_play
-	jsr zsmkit::zsm_fill_buffers
-	jsr zsmkit::zsm_fill_buffers
 
 loop:
 	stz Vera::Reg::DCBorder
@@ -67,6 +90,10 @@ loop:
 	ldx #1
 	jsr zsmkit::zsm_play
 	jsr zsmkit::zsm_fill_buffers
+	jsr zsmkit::zsm_fill_buffers
+	ldx #0
+	lda #$28
+	jsr zsmkit::zsm_setatten
 	bra loop
 check2:
 	lda frames2
@@ -86,9 +113,6 @@ check2:
 	jsr zsmkit::zsm_play
 	jsr zsmkit::zsm_fill_buffers
 	ldx #1
-	lda #$20
-	jsr zsmkit::zsm_setatten
-	ldx #1
 	jsr zsmkit::zsm_stop
 	bra loop
 check3:
@@ -100,8 +124,10 @@ check3:
 	ora frames3+1
 	jne loop
 	lda #'!'
-	ldx #1
-	jsr zsmkit::zsm_play
+	jsr X16::Kernal::BSOUT
+	ldx #0
+	lda #0
+	jsr zsmkit::zsm_setatten
 	jmp loop
 
 
