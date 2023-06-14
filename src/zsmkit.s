@@ -14,6 +14,7 @@
 .export zsm_setfile
 .export zsm_setmem
 .export zsm_setatten
+.export zsm_rewind
 
 
 NUM_PRIORITIES = 4
@@ -1129,6 +1130,8 @@ nextpsg:
 	lda #$80
 	sta prio_active,x
 
+	jsr zsm_fill_buffers
+
 	plp ; end critical section
 exit:
 	RESTORE_BANK
@@ -1241,15 +1244,18 @@ loadit:
 	; now check for EOI
 	jsr X16::Kernal::READST
 	and #$40
-	beq end_read
+	beq check_enough
 	; we reached EOI, re-seek next call if we loop
 	lda loop_enable,x
 	beq finish
 	lda #$80
 	sta streaming_reopen,x
-end_read:
+check_enough:
 	jsr X16::Kernal::CLRCHN
 	ldx prio
+	lda ringbuffer_start_h,x
+	cmp ringbuffer_end_h,x
+	jeq loop ; get more if start and end are on the same page
 next:
 	dex
 	bmi :+

@@ -7,3 +7,5 @@ OLD/
 *.dbg
 *.PRG
 *.BIN
+*.img
+lib/

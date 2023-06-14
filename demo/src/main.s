@@ -89,8 +89,6 @@ loop:
 	jsr zsmkit::zsm_setfile
 	ldx #1
 	jsr zsmkit::zsm_play
-	jsr zsmkit::zsm_fill_buffers
-	jsr zsmkit::zsm_fill_buffers
 	ldx #0
 	lda #$28
 	jsr zsmkit::zsm_setatten
@@ -111,7 +109,6 @@ check2:
 	jsr zsmkit::zsm_setfile
 	ldx #2
 	jsr zsmkit::zsm_play
-	jsr zsmkit::zsm_fill_buffers
 	ldx #1
 	jsr zsmkit::zsm_stop
 	bra loop
