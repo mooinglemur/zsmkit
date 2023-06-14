@@ -46,7 +46,7 @@ $(SDCARD): $(EXE)
 
 .PHONY: clean run
 clean:
-	$(RM) $(EXE) $(OBJS) $(SDCARD) $(MAPFILE) $(SYMFILE) $(LIBRARY)
+	$(RM) $(EXE) $(OBJS) $(SDCARD) $(MAPFILE) $(SYMFILE)
 
 box: $(EXE) $(SDCARD)
 	SDL_AUDIODRIVER=alsa box16 -sdcard $(SDCARD) -prg $(EXE) -run
