@@ -3,6 +3,8 @@ Advanced music and sound effects engine for the Commander X16
 
 Code is in an early alpha state. Some features may not work correctly.
 
+Due to bugs in the audio bank routine `psg_write` in earlier ROMs, the minimum ROM version supported is R44.
+
 ## Overview
 
 ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alternative to ZSound, but with several new features and advantages. Features shared with ZSound include:
@@ -19,6 +21,12 @@ It also has these features that ZSound currently lacks:
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback.
 * "Master volume" control for each playback slot.
 
+These features are planned but not yet implemented
+* Callback from library into the application for loop/end notification
+* Ability to dynamically alter the tempo
+* Ability to fetch current song state
+* Feature to suspend specific channels for all priorities, allowing the channel/voice to be used outside of ZSMKit, such as simple in-game sound effects, for instance.
+
 This potential ZSM feature is missing from both ZSound and ZSMkit:
 
 * PCM channel playback
@@ -31,7 +39,7 @@ Priority 0 is the lowest priority. It would typically used for playback of backg
 
 Priorities 1-3 would typically be used for short jingles and sound effects.
 
-When composing/arranging your music and sound effects, keep channel use in mind. For more seamless playback, sound effects are best written to be played on channels that are not used by your main BGM music, or are otherwise less noticeable if they are taken over by the higher priority playback.
+When composing/arranging your music and sound effects, keep channel use in mind. For more seamless playback, sound effects are best written to be played on channels that are not used by your main BGM music, or choose channels whose absence in your BGM are less noticeable if they are taken over by the higher priority playback.
 
 ## Building and using in your project
 
@@ -42,6 +50,12 @@ To build the library, run
 from the main project directory. This will create `lib/zsmkit.lib`, which you can build into your project.
 
 You will likely want to include the file `src/zsmkit.inc` into your project as well for the library's label names.
+
+## Alternative builds
+
+For non-ca65/cc65 projects, there is one existing option. The build can produce the file `lib/8010.bin` by calling
+`make incbin`
+This file can be included at orign $0810 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc`.
 
 ## Prerequisites
 
