@@ -3,7 +3,7 @@ Advanced music and sound effects engine for the Commander X16
 
 Code is in an early alpha state. Some features may not work correctly.
 
-Due to bugs in the audio bank routine `psg_write` in earlier ROMs, the minimum ROM version supported is R44.
+Due to bugs in the audio bank routine `psg_write` in earlier ROMs, the minimum earliest release supported will be R44. It should work with current master of x16-rom.
 
 ## Overview
 
