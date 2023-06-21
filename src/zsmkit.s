@@ -9,9 +9,11 @@
 .export zsm_play
 .export zsm_stop
 .export zsm_close
+.ifdef ZSMKIT_ENABLE_STREAMING
 .export zsm_fill_buffers
 .export zsm_setlfs
 .export zsm_setfile
+.endif
 .export zsm_setmem
 .export zsm_setatten
 .export zsm_rewind
@@ -81,6 +83,7 @@ prio_active:            .res NUM_PRIORITIES
 ; is ready
 prio_playable:          .res NUM_PRIORITIES
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 ; Is the song fully in memory or played through a 1k ring buffer?
 ; zero = traditional memory storage, nonzero = ring buffer
 ; offset = (priority)
@@ -128,6 +131,7 @@ streaming_dev:          .res NUM_PRIORITIES
 
 ; Goes true when streaming is finished
 streaming_finished:     .res NUM_PRIORITIES
+.endif
 
 ; For non-streaming mode, the bank and offset of the beginning of
 ; the song, loop point, and of the current pointer
@@ -231,6 +235,7 @@ P1=*-2
 	bra eraseloop
 erasedone:
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 	ldx #NUM_PRIORITIES-1
 prioloop:
 	lda #8
@@ -242,6 +247,7 @@ prioloop:
 
 	dex
 	bpl prioloop
+.endif
 
 	RESTORE_BANK
 	plp
@@ -361,6 +367,7 @@ prio:
 	adc #>opm_shadow
 	sta OS
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 	lda streaming_mode,x
 	beq memory
 	lda ringbuffer_start_l,x
@@ -368,6 +375,7 @@ prio:
 	lda ringbuffer_start_h,x
 	sta PTR+1
 	bra note_loop
+.endif
 memory:
 	lda zsm_ptr_l,x
 	sta PTR
@@ -463,11 +471,13 @@ OS = *-1
 	bne opmloop
 	jmp nextnote
 islooped:
+.ifdef ZSMKIT_ENABLE_STREAMING
 	; if we're in streaming mode, we basically ignore the eod
 	; and assume there's valid ZSM data that's been fetched
 	; for us immediately afterwards
 	lda streaming_mode,x
 	jne nextnote
+.endif
 	; if it's memory, we just repoint the pointer
 	lda zsm_loop_bank,x
 	sta zsm_ptr_bank,x
@@ -494,6 +504,7 @@ advanceptr:
 	bne :+
 	inc PTR+1
 :	lda PTR+1
+.ifdef ZSMKIT_ENABLE_STREAMING
 	bit streaming_mode,x
 	bpl @mem
 	sta ringbuffer_start_h,x
@@ -512,6 +523,7 @@ advanceptr:
 	sta ringbuffer_start_l,x
 	clc
 	rts
+.endif
 @mem:
 	cmp #$c0
 	bcc :+
@@ -914,6 +926,7 @@ valopm:
 	PRESERVE_BANK_CLOBBER_A_P
 	ldx prio
 :
+.ifdef ZSMKIT_ENABLE_STREAMING
 	lda streaming_mode,x
 	beq memory
 	stz prio_playable,x
@@ -921,6 +934,7 @@ valopm:
 
 	ldx prio
 	bra cont
+.endif
 memory:	
 	lda zsm_start_l,x
 	sta zsm_ptr_l,x
@@ -958,12 +972,15 @@ prio:
 	PRESERVE_BANK_CLOBBER_A_P
 	ldx prio
 :
+.ifdef ZSMKIT_ENABLE_STREAMING
 	lda streaming_mode,x
 	beq :+
 	lda streaming_lfn_sa,x
 	jsr X16::Kernal::CLOSE
 	ldx prio
-:	stz prio_playable,x
+:	
+.endif
+	stz prio_playable,x
 
 	RESTORE_BANK
 	rts
@@ -1062,11 +1079,13 @@ prio:
 	lda prio_playable,x
 	beq exit
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 	lda streaming_finished,x
 	bne exit
 
 	lda streaming_mode,x
 	bne ok
+.endif
 
 	lda zsm_ptr_bank,x
 	bne ok
@@ -1130,7 +1149,9 @@ nextpsg:
 	lda #$80
 	sta prio_active,x
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 	jsr zsm_fill_buffers
+.endif
 
 	plp ; end critical section
 exit:
@@ -1140,6 +1161,7 @@ prio:
 	.byte 0
 .endproc
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 ;...................
 ; zsm_fill_buffers :
 ;============================================================================
@@ -1496,6 +1518,127 @@ prio:
 	.byte 0
 .endproc
 
+;............
+; _open_zsm :
+;============================================================================
+; Arguments: .X = priority
+; Returns: .C set for error
+; Preserves: .X
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; This internal routine (re-)opens a ZSM file for use in streaming mode.
+; If it's the first time the file is opened, streaming_loop_point_[lmh],x
+; must be zeroed first so that the seek points to the beginning of the file. 
+;
+; Must only be called from main loop routines.
+.proc _open_zsm: near
+
+	stx prio ; save priority locally
+
+	; make sure handle (lfn) is closed
+	lda streaming_lfn_sa,x
+	jsr X16::Kernal::CLOSE
+	ldx prio
+
+
+	ldy streaming_filename_len,x
+	phy ; save filename length
+	lda times_fn_max_length,x
+	clc
+	adc #<streaming_filename
+	sta FP
+	lda #>streaming_filename
+	adc #0
+	sta FP+1
+	dey
+fnloop:
+	lda $ffff,y
+FP = *-2
+	sta buff,y
+	dey
+	bpl fnloop
+
+	ldx #<buff
+	ldy #>buff
+	pla ; restore filename length
+	jsr X16::Kernal::SETNAM
+
+	ldx prio
+	ldy streaming_lfn_sa,x
+	lda streaming_dev,x
+	tax
+	tya
+	jsr X16::Kernal::SETLFS
+
+	jsr X16::Kernal::OPEN
+
+	; seek to loop point
+	ldx prio
+	lda streaming_lfn_sa,x
+	sta seekpoint+1
+	lda streaming_loop_point_l,x
+	sta seekpoint+2
+	lda streaming_loop_point_m,x
+	sta seekpoint+3
+	lda streaming_loop_point_h,x
+	sta seekpoint+4
+
+	lda #6
+	ldx #<seekpoint
+	ldy #>seekpoint
+
+	jsr X16::Kernal::SETNAM
+
+	ldx prio
+	lda streaming_dev,x
+	tax
+	lda #15
+	tay
+	jsr X16::Kernal::SETLFS
+
+	jsr X16::Kernal::OPEN
+
+	ldx #15
+	jsr X16::Kernal::CHKIN
+	jsr X16::Kernal::BASIN
+	pha ; preserve byte read
+	jsr X16::Kernal::READST
+	and #$40
+	bne errorp
+	pla ; restore byte read from command channel
+	beq errord
+	cmp #'0'
+	bne error
+	jsr X16::Kernal::CLRCHN
+	lda #15
+	jsr X16::Kernal::CLOSE
+	ldx prio
+	clc
+	rts
+errord:
+	dec
+	pha
+errorp:
+	ply
+error:
+	jsr X16::Kernal::CLRCHN
+	lda #15
+	jsr X16::Kernal::CLOSE
+	ldx prio
+	lda #$80
+	sta streaming_finished,x
+	sta recheck_priorities
+	stz prio_playable,x
+	sec	
+	rts
+prio:
+	.byte 0
+seekpoint:
+	.byte 'P', $00, $00, $00, $00, $00
+.endproc
+
+.endif
 
 ;.............
 ; zsm_setmem :
@@ -1661,7 +1804,9 @@ noerr1:
 	stz delay_l,x
 	stz delay_h,x	
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 	stz streaming_mode,x
+.endif
 	lda #$80
 	sta prio_playable,x
 
@@ -1744,125 +1889,6 @@ prio:
 .endproc
 
 
-;............
-; _open_zsm :
-;============================================================================
-; Arguments: .X = priority
-; Returns: .C set for error
-; Preserves: .X
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-;
-; This internal routine (re-)opens a ZSM file for use in streaming mode.
-; If it's the first time the file is opened, streaming_loop_point_[lmh],x
-; must be zeroed first so that the seek points to the beginning of the file. 
-;
-; Must only be called from main loop routines.
-.proc _open_zsm: near
-
-	stx prio ; save priority locally
-
-	; make sure handle (lfn) is closed
-	lda streaming_lfn_sa,x
-	jsr X16::Kernal::CLOSE
-	ldx prio
-
-
-	ldy streaming_filename_len,x
-	phy ; save filename length
-	lda times_fn_max_length,x
-	clc
-	adc #<streaming_filename
-	sta FP
-	lda #>streaming_filename
-	adc #0
-	sta FP+1
-	dey
-fnloop:
-	lda $ffff,y
-FP = *-2
-	sta buff,y
-	dey
-	bpl fnloop
-
-	ldx #<buff
-	ldy #>buff
-	pla ; restore filename length
-	jsr X16::Kernal::SETNAM
-
-	ldx prio
-	ldy streaming_lfn_sa,x
-	lda streaming_dev,x
-	tax
-	tya
-	jsr X16::Kernal::SETLFS
-
-	jsr X16::Kernal::OPEN
-
-	; seek to loop point
-	ldx prio
-	lda streaming_lfn_sa,x
-	sta seekpoint+1
-	lda streaming_loop_point_l,x
-	sta seekpoint+2
-	lda streaming_loop_point_m,x
-	sta seekpoint+3
-	lda streaming_loop_point_h,x
-	sta seekpoint+4
-
-	lda #6
-	ldx #<seekpoint
-	ldy #>seekpoint
-
-	jsr X16::Kernal::SETNAM
-
-	ldx prio
-	lda streaming_dev,x
-	tax
-	lda #15
-	tay
-	jsr X16::Kernal::SETLFS
-
-	jsr X16::Kernal::OPEN
-
-	ldx #15
-	jsr X16::Kernal::CHKIN
-	jsr X16::Kernal::BASIN
-	pha ; preserve byte read
-	jsr X16::Kernal::READST
-	and #$40
-	bne errorp
-	pla ; restore byte read from command channel
-	beq errord
-	cmp #'0'
-	bne error
-	jsr X16::Kernal::CLRCHN
-	lda #15
-	jsr X16::Kernal::CLOSE
-	ldx prio
-	clc
-	rts
-errord:
-	dec
-	pha
-errorp:
-	ply
-error:
-	jsr X16::Kernal::CLRCHN
-	lda #15
-	jsr X16::Kernal::CLOSE
-	ldx prio
-	lda #$80
-	sta streaming_finished,x
-	sta recheck_priorities
-	stz prio_playable,x
-	sec	
-	rts
-prio:
-	.byte 0
-seekpoint:
-	.byte 'P', $00, $00, $00, $00, $00
-.endproc
 
 .proc _print_hex: near
 	pha
@@ -1886,6 +1912,7 @@ table:
 	.byte "0123456789ABCDEF"
 .endproc
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 ringbuffer_start_page:
 .repeat NUM_PRIORITIES, i
 	.byte $A0+(i*(RINGBUFFER_SIZE >> 8))
@@ -1895,6 +1922,7 @@ ringbuffer_end_page: ; non-inclusive
 .repeat NUM_PRIORITIES, i
 	.byte $A0+((i+1)*(RINGBUFFER_SIZE >> 8))
 .endrepeat
+.endif
 
 times_fn_max_length:
 .repeat NUM_PRIORITIES, i

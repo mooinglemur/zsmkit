@@ -1,3 +1,9 @@
+DEFINES =
+
+# Comment this to save space if you don't plan to stream ZSMs from disk without
+# loading them in their entirety
+DEFINES += -D ZSMKIT_ENABLE_STREAMING
+
 UC = $(shell echo '$1' | tr '[:lower:]' '[:upper:]')
 
 PROJECT	:= zsmkit
@@ -25,14 +31,14 @@ lib: $(LIBRARY)
 incbin: $(INCBIN)
 
 $(INCBIN): $(LIBRARY)
-	$(AS) $(ASFLAGS) $(SRC)/ibjmptbl.asm -o $(OBJ)/jmptbl.o
+	$(AS) $(ASFLAGS) $(SRC)/ibjmptbl.asm $(DEFINES) -o $(OBJ)/jmptbl.o
 	$(LD) $(LDFLAGS) -C 0810.cfg $(OBJ)/jmptbl.o $(LIBRARY) -o $@
 
 $(LIBRARY): $(OBJS) | $(LIB) 
 	$(AR) a $@ $(OBJS)
 
 $(OBJ)/%.o: $(SRC)/%.s | $(OBJ)
-	$(AS) $(ASFLAGS) $< -o $@
+	$(AS) $(ASFLAGS) $(DEFINES) $< -o $@
 
 $(OBJ):
 	$(MKDIR) $@
