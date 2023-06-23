@@ -20,7 +20,9 @@ SRCS	:= $(wildcard $(SRC)/*.s)
 OBJS    := $(patsubst $(SRC)/%.s,$(OBJ)/%.o,$(SRCS))
 EXE		:= $(call UC,$(PROJECT).PRG)
 LIBRARY := $(LIB)/$(PROJECT).lib
-INCBIN  := $(LIB)/8010.bin
+INCBIN1 := $(LIB)/zsmkit-0810.bin
+INCBIN2 := $(LIB)/zsmkit-0830.bin
+
 
 default: all
 
@@ -28,11 +30,17 @@ all: lib
 
 lib: $(LIBRARY)
 
-incbin: $(INCBIN)
+incbin: $(INCBIN1) $(INCBIN2)
 
-$(INCBIN): $(LIBRARY)
-	$(AS) $(ASFLAGS) $(SRC)/ibjmptbl.asm $(DEFINES) -o $(OBJ)/jmptbl.o
+$(INCBIN1): $(LIBRARY) $(OBJ)/jmptbl.o
 	$(LD) $(LDFLAGS) -C 0810.cfg $(OBJ)/jmptbl.o $(LIBRARY) -o $@
+
+$(INCBIN2): $(LIBRARY) $(OBJ)/jmptbl.o
+	$(LD) $(LDFLAGS) -C 0830.cfg $(OBJ)/jmptbl.o $(LIBRARY) -o $@
+
+$(OBJ)/jmptbl.o:
+	$(AS) $(ASFLAGS) $(SRC)/ibjmptbl.asm $(DEFINES) -o $(OBJ)/jmptbl.o
+
 
 $(LIBRARY): $(OBJS) | $(LIB) 
 	$(AR) a $@ $(OBJS)
@@ -48,6 +56,6 @@ $(LIB):
 
 .PHONY: clean run
 clean:
-	$(RM) $(OBJS) $(LIBRARY) $(INCBIN)
+	$(RM) $(OBJS) $(LIBRARY) $(INCBIN1) $(INCBIN2)
 
 

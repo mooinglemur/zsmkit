@@ -1,0 +1,11 @@
+init_engine = $0830
+zsm_tick    = $0833
+zsm_play    = $0836
+zsm_stop    = $0839
+zsm_rewind  = $083C
+zsm_close   = $083F
+zsm_fill_buffers = $0842
+zsm_setlfs  = $0845
+zsm_setfile = $0848
+zsm_setmem  = $084B
+zsm_setatten = $084E
