@@ -930,6 +930,7 @@ valopm:
 	lda streaming_mode,x
 	beq memory
 	stz prio_playable,x
+	stz streaming_finished,x
 	jsr _open_and_parse
 
 	ldx prio
@@ -978,6 +979,7 @@ prio:
 	lda streaming_lfn_sa,x
 	jsr X16::Kernal::CLOSE
 	ldx prio
+	stz streaming_finished,x
 :	
 .endif
 	stz prio_playable,x
