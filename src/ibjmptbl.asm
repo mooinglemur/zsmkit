@@ -1,7 +1,7 @@
 .include "zsmkit.inc"
 
 .segment "JMPTBL"
-jmp init_engine ; $0810 / $0830
+jmp zsm_init_engine ; $0810 / $0830
 jmp zsm_tick    ; $0813 / $0833
 jmp zsm_play    ; $0816 / $0836
 jmp zsm_stop    ; $0819 / $0839

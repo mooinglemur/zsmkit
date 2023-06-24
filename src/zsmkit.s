@@ -4,7 +4,7 @@
 
 .macpack longbranch
 
-.export init_engine
+.export zsm_init_engine
 .export zsm_tick
 .export zsm_play
 .export zsm_stop
@@ -194,7 +194,7 @@ _ZSM_BANK_END := *
 
 .segment "ZSMKITLIB"
 ;..............
-; init_engine :
+; zsm_init_engine :
 ;============================================================================
 ; Arguments: .A = designated RAM bank to use for ZSMKit engine state
 ; Returns: (none)
@@ -206,7 +206,7 @@ _ZSM_BANK_END := *
 ; audio_init using the X16's AUDIO API to reset its state..
 ; Needs to be called once before any other ZSMKit function.
 
-.proc init_engine: near
+.proc zsm_init_engine: near
 	php
 	sei
 

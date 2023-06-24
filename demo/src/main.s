@@ -26,7 +26,7 @@ oldirq:
 
 .proc main
 	lda #1
-	jsr zsmkit::init_engine
+	jsr zsmkit::zsm_init_engine
 
 	jsr setup_handler
 

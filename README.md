@@ -89,7 +89,7 @@ SEGMENTS {
 All calls except for `zsm_tick` are meant to be called from the main loop of the program. `zsm_tick` is the only routine that is safe to call from IRQ.
 
 ---
-#### `init_engine`
+#### `zsm_init_engine`
 ```
 Inputs: .A = RAM bank to assign to zsmkit
 ```

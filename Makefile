@@ -56,6 +56,6 @@ $(LIB):
 
 .PHONY: clean run
 clean:
-	$(RM) $(OBJS) $(LIBRARY) $(INCBIN1) $(INCBIN2)
+	$(RM) $(OBJS) $(OBJ)/jmptbl.o $(LIBRARY) $(INCBIN1) $(INCBIN2)
 
 

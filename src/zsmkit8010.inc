@@ -1,4 +1,4 @@
-init_engine = $0810
+zsm_init_engine = $0810
 zsm_tick    = $0813
 zsm_play    = $0816
 zsm_stop    = $0819

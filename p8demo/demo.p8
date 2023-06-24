@@ -16,7 +16,7 @@ zsmkit_lib:
 	; this has to be the first statement to make sure it loads at the specified module address $0830
 	%asmbinary "zsmkit-0830.bin"
 
-	romsub $0830 = init_engine(ubyte bank @A) clobbers(A, X, Y)
+	romsub $0830 = zsm_init_engine(ubyte bank @A) clobbers(A, X, Y)
 	romsub $0833 = zsm_tick() clobbers(A, X, Y)
 
 	romsub $0836 = zsm_play(ubyte prio @X) clobbers(A, X, Y)
@@ -34,7 +34,7 @@ zsmkit_lib:
 	sub start() {
 		txt.print("zsmkit demo program (drive 8)!\n")
 
-		init_engine(zsmkit_bank)
+		zsm_init_engine(zsmkit_bank)
 		play_music()
 	}
 
