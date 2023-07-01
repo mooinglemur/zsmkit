@@ -63,6 +63,9 @@ opm_atten_shadow:       .res NUM_PRIORITIES*8
 ; offset = (priority * 16) + (voice)
 vera_psg_atten_shadow:  .res NUM_PRIORITIES*16
 
+pcm_ctrl_shadow:        .res NUM_PRIORITIES
+pcm_rate_shadow:        .res NUM_PRIORITIES
+
 ; These two arrays are set via properties on the ZSM
 ; based on which voices are used.  If the priority slot
 ; is not active, these are zeroed.
@@ -105,6 +108,20 @@ ringbuffer_end_h:       .res NUM_PRIORITIES
 streaming_loop_point_l: .res NUM_PRIORITIES
 streaming_loop_point_m: .res NUM_PRIORITIES
 streaming_loop_point_h: .res NUM_PRIORITIES
+
+; 24 bit offset of what has been read
+; from the streamed ZSM
+streaming_pos_l:        .res NUM_PRIORITIES
+streaming_pos_m:        .res NUM_PRIORITIES
+streaming_pos_h:        .res NUM_PRIORITIES
+
+; 24 bit offset of where it expects to find
+; the end of data marker.
+; beyond this point could be PCM data
+; and we don't want to slurp that in when streaming
+streaming_eod_l:        .res NUM_PRIORITIES
+streaming_eod_m:        .res NUM_PRIORITIES
+streaming_eod_h:        .res NUM_PRIORITIES
 
 ; When `zsm_fill_buffers` encounters EOI, this flag is set.
 ; Since opening a file can be expensive, we save that for
@@ -165,6 +182,30 @@ delay_f:                .res NUM_PRIORITIES
 delay_l:                .res NUM_PRIORITIES
 delay_h:                .res NUM_PRIORITIES
 
+; if exists, points to the PCM instrument table in RAM
+pcm_table_exists:       .res NUM_PRIORITIES
+pcm_table_bank:         .res NUM_PRIORITIES
+pcm_table_l:            .res NUM_PRIORITIES
+pcm_table_h:            .res NUM_PRIORITIES
+
+; The prio that currently has a PCM event going
+; $10 means ZCM is/was playing
+pcm_prio:               .res 1
+
+; Set while playing.  Higher priorities can take over
+; PCM by emptying the FIFO and then starting their own
+; sound
+pcm_busy:               .res 1
+
+; The pointer to the PCM data to read next
+pcm_cur_bank:           .res 1
+pcm_cur_l:              .res 1
+pcm_cur_h:              .res 1
+
+; Bytes left for reading data to pump into the FIFO
+pcm_remain_l:           .res 1
+pcm_remain_m:           .res 1
+pcm_remain_h:           .res 1
 
 ; These arrays contain $FF if the voice is unused or will contain
 ; the priority (0-3) of the module that is allowed to use the voice.
@@ -278,6 +319,10 @@ prioloop:
 	; preserve VERA state
 	lda Vera::Reg::Ctrl
 	sta C1
+	lda #%00000100 ; DCSEL=2
+	sta Vera::Reg::Ctrl
+	lda $9f29 ; FX Ctrl
+	sta FX1
 	stz Vera::Reg::Ctrl
 	lda Vera::Reg::AddrL
 	sta A1
@@ -303,6 +348,8 @@ prioloop:
 	stx prio
 	bpl prioloop
 
+	jsr _pcm_player
+
 	; restore VERA state
 	lda #$ff
 A3 = *-1
@@ -313,15 +360,473 @@ A2 = *-1
 	lda #$ff
 A1 = *-1
 	sta Vera::Reg::AddrL
+	lda #%00000100 ; DCSEL=2
+	sta Vera::Reg::Ctrl
+	lda #$ff
+FX1 = *-1
+	sta $9f29 ; FX ctrl
 	lda #$ff
 C1 = *-1
-	sta Vera::Reg::Ctrl	
+	sta Vera::Reg::Ctrl
 	lda #$ff
 R1 = *-1
 	sta X16::Reg::ROMBank
 	RESTORE_BANK_IRQ
 	rts
 prio:
+	.byte 0
+.endproc
+
+;..........................
+; _pcm_trigger_instrument :
+;============================================================================
+; Arguments: .X = prio, A = instrument number
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; This routine will trigger an instrument if the PCM channel is free
+; or is eligible to be stolen
+.proc _pcm_trigger_instrument: near
+	tay ; preserve instrument number
+	lda pcm_table_exists,x
+	jeq end
+
+	lda pcm_busy
+	beq not_busy
+
+	cpx pcm_prio
+	jcc end ; PCM is busy and we are lower priority
+not_busy:
+	lda Vera::Reg::AudioCtrl
+	and #$3f
+	sta TC
+
+	cpx pcm_prio
+	beq no_reshadow
+	; we're going to switch priorities, so we need to reshadow the CTRL
+	; and the rate
+	lda pcm_ctrl_shadow,x
+	and #$3f
+	sta TC
+	lda pcm_rate_shadow,x
+	sta Vera::Reg::AudioRate
+	stx pcm_prio
+no_reshadow:
+	; nuke any fifo contents immediately
+	lda #$ff
+TC = *-1
+	ora #$80
+	sta Vera::Reg::AudioCtrl
+	sta pcm_busy
+
+	lda pcm_table_l,x
+	sta PT
+	lda pcm_table_h,x
+	sta PT+1
+	lda pcm_table_bank,x
+	sta X16::Reg::RAMBank
+
+	ldx #0
+check_sig:
+	jsr get_next_byte
+	cmp validation,x
+	jne error ; we didn't see "PCM" where we expected it
+	inx
+	cpx #3
+	bcc check_sig
+
+check_inst_bounds:
+	sty tmp_inst
+	jsr get_next_byte
+	sta tmp_max_inst
+	cmp tmp_inst
+	jcc error ; the last instrument known is a lower index than the one requested
+
+	; multiply the offset by 8
+	tya
+	stz tmp_inst
+	asl
+	rol tmp_inst
+	asl
+	rol tmp_inst
+	asl
+	rol tmp_inst
+
+	; carry is already clear
+	adc PT
+	sta PT
+	lda tmp_inst
+	adc PT+1
+	sta PT+1
+	jsr validate_pt
+
+	; now we should be at the instrument definiton
+	sty tmp_inst
+	jsr get_next_byte
+	cmp tmp_inst
+	jne error ; This should be the instrument definition that we asked for
+
+	; here's the geometry byte (bit depth and number of channels)
+	; apply it now
+	jsr get_next_byte
+	and #$30
+	sta tmp_inst
+	lda Vera::Reg::AudioCtrl
+	and #$0f ; volume only, no reset
+	ora tmp_inst
+	sta Vera::Reg::AudioCtrl
+
+	; slurp up the offset and length
+	ldx #6
+:	jsr get_next_byte
+	pha
+	dex
+	bne :-
+
+	; switch back to the zsmkit bank so we can feed our variables
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+
+	; these get fed verbatim
+	pla
+	sta pcm_remain_h
+	pla
+	sta pcm_remain_m
+	pla
+	sta pcm_remain_l
+
+	; these will need to be processed
+	pla
+.repeat 5
+	asl ; x32
+.endrepeat
+	sta pcm_cur_bank
+
+	pla
+:	cmp #$20
+	bcc :+
+	sbc #$20
+	inc pcm_cur_bank
+	bra :-
+:	sta pcm_cur_h
+
+	pla
+	ldx pcm_prio
+	clc
+	adc pcm_table_l,x
+	sta pcm_cur_l
+
+	lda pcm_table_h,x
+	adc pcm_cur_h
+:	cmp #$c0
+	bcc :+
+	sbc #$20
+	inc pcm_cur_bank
+	bra :-
+:	sta pcm_cur_h
+
+	lda pcm_table_bank,x
+	; carry is clear
+	adc pcm_cur_bank
+	sta pcm_cur_bank
+
+	; now add the offset of the instrument table
+	lda tmp_max_inst
+	stz tmp_inst
+	inc
+	bne :+
+	inc tmp_inst
+:	asl
+	rol tmp_inst
+	asl
+	rol tmp_inst
+	asl
+	rol tmp_inst
+
+	adc pcm_cur_l
+	sta pcm_cur_l
+	lda tmp_inst
+	adc pcm_cur_h
+:	cmp #$c0
+	bcc :+
+	sbc #$20
+	inc pcm_cur_bank
+	bra :-
+:	sta pcm_cur_h
+
+	; and now pcm_cur* and pcm_remain* are initialized
+end:
+	rts
+error:
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+	stz pcm_busy
+	rts
+
+get_next_byte:
+	lda $ffff
+PT = *-2
+	inc PT
+	bne gnb2
+	inc PT+1
+validate_pt:
+	pha
+	lda PT+1
+	cmp #$c0
+	bcc gnb1
+	sbc #$20
+	sta PT+1
+	inc X16::Reg::RAMBank
+gnb1:
+	pla
+gnb2:
+	rts
+
+validation:
+	.byte "PCM"
+tmp_inst:
+	.byte 0
+tmp_max_inst:
+	.byte 0
+.endproc
+
+;..............
+; _pcm_player :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Checks to see if any PCM events are in progress, then calculates
+; how many bytes to send to the FIFO, then does so
+.proc _pcm_player: near
+	ldx pcm_busy
+	jeq end ; nothing is playing
+
+	ldx Vera::Reg::AudioRate
+	stx RR ; self mod to restore the rate if we happen to zero it to do the
+	; initial load
+	dex
+	lda Vera::Reg::ISR
+	and #$08 ; AFLOW
+	beq slow ; AFLOW is clear, send slow version (if rate > 0)
+fast:
+	cpx #$ff
+	bne :+
+	ldx #$7f
+:	lda pcmrate_fast,x
+	bra calc_bytes
+slow:
+	cpx #$ff
+	beq end ; AFLOW is clear and rate is 0, don't bother feeding	
+	lda pcmrate_slow,x
+calc_bytes:
+	; do the << 2 base amount
+	stz tmp_count+1
+	asl
+	rol tmp_count+1
+	asl
+	rol tmp_count+1
+	sta tmp_count
+	lda Vera::Reg::AudioCtrl
+	and #$10
+	beq no_stereo
+	asl tmp_count
+	rol tmp_count+1
+no_stereo:
+	lda Vera::Reg::AudioCtrl
+	and #$20
+	beq no_16bit
+	asl tmp_count
+	rol tmp_count+1
+no_16bit:
+	; If the fifo is completely empty, change the rate to 0 temporarily
+	; so that the FIFO can be filled without it immediately starting
+	; to drain
+	bit Vera::Reg::AudioCtrl
+	bvc :+
+	stz Vera::Reg::AudioRate
+:	lda pcm_remain_h
+	bne normal_load ; if high byte is set, we definitely have plenty of bytes
+	; Do a test-subtract to see if we would go over
+	lda pcm_remain_l
+	sec
+	sbc tmp_count
+	lda pcm_remain_m
+	sbc tmp_count+1
+	bcs normal_load ; borrow clear, sufficient bytes by default
+
+	; we have fewer bytes remaining than we were going to send
+	; so the PCM blitting is done. Mark the pcm channel as available
+	stz pcm_busy
+	ldx pcm_remain_l
+	ldy pcm_remain_m
+	bra loadit
+normal_load:
+	; decrement remaining
+	lda pcm_remain_l
+	sec
+	sbc tmp_count
+	sta pcm_remain_l
+	lda pcm_remain_m
+	sbc tmp_count+1
+	sta pcm_remain_m
+	lda pcm_remain_h
+	sbc #0
+	sta pcm_remain_h
+
+	ldx tmp_count
+	ldy tmp_count+1
+loadit:
+	jsr _load_fifo
+	lda #$80 ; this is self-mod to restore the rate in case we loaded while empty and temporarily set the rate to zero
+RR = *-1
+	sta Vera::Reg::AudioRate
+end:
+	rts
+tmp_count:
+	.byte 0,0
+.endproc
+
+;.............
+; _load_fifo :
+;============================================================================
+; Arguments: .XY = number of bytes to read and send
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Imported from ZSound, a very efficient FIFO filler routine
+; starts at pcm_cur_* and then updates their values at the end
+.proc _load_fifo: near
+	__CPX		= $e0	; opcode for cpx immediate
+	__BNE		= $d0
+
+	; self-mod the page of the LDA below to the current page of pcm_cur_h
+	lda pcm_cur_h
+	sta data_page0
+	sta data_page1
+	sta data_page2
+	sta data_page3
+
+	; page-align
+	txa             ;.A now holds the low-byte of n-bytes to copy
+	ldx pcm_cur_l   ;.X now points at the page-aligned offset
+	; add the delta to bytes_left
+	clc
+	adc pcm_cur_l
+	sta bytes_left
+	bcc :+
+	iny
+:	lda pcm_cur_bank ; load the bank we'll be reading from
+	sta X16::Reg::RAMBank
+	; determine whether we have > $FF bytes to copy. If $100 or more, then
+	; use the full-page dynamic comparator. Else use the last-page comparator.
+	cpy #0
+	beq last_page   ; if 0, then use the last_page comparator.
+	; self-mod the instruction at dynamic_comparator to:
+	; BNE copy_byte
+	lda #__BNE
+	sta dynamic_comparator
+	lda #.lobyte(copy_byte0-dynamic_comparator-2)
+	sta dynamic_comparator+1
+	; compute num-steps % 4 (the mod4 is done by shifting the 2 LSB into N and C)
+	txa
+enter_loop:
+	ror
+	ror
+	bcc :+
+	bmi copy_byte3  ; 18
+	bra copy_byte2  ; 20
+:	bmi copy_byte1  ; 19
+
+copy_byte0:
+	lda $FF00,x
+	data_page0 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+copy_byte1:
+	lda $FF00,x
+	data_page1 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+copy_byte2:
+	lda $FF00,x
+	data_page2 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+copy_byte3:
+	lda $FF00,x
+	data_page3 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+dynamic_comparator:
+	bne copy_byte0
+	; the above instruction is modified to CPX #(bytes_left) on the last page of data
+	bne copy_byte0  ; branch for final page's CPX result.
+	cpx #0
+	bne done        ; .X can only drop out of the loop on non-zero during the final page.
+	; Thus X!=0 means we just finished the final page. Done.
+	; advance data pointer before checking if done on a page offset of zero.
+	lda data_page0
+	inc
+	cmp #$c0
+	beq do_bankwrap
+no_bankwrap:
+	; update the self-mod for all 4 iterations of the unrolled loop
+	sta data_page0
+	sta data_page1
+	sta data_page2
+	sta data_page3
+check_done:
+	cpy #0		; .Y = high byte of "bytes_left"
+	beq done	; .X must be zero as well if we're here. Thus 0 bytes left. Done.
+	dey
+	bne copy_byte0	; more than one page remains. Continue with full-page mode copy.
+last_page:
+	lda bytes_left
+	beq done		; if bytes_left=0 then we're done at offset 0x00, so exit.
+	; self-mod the instruction at dynamic_comparator to be:
+	; CPX #(bytes_left)
+	sta dynamic_comparator+1
+	lda #__CPX
+	sta dynamic_comparator
+	; Compute the correct loop entry point with the new exit index
+	; i.e. the last page will start at x == 0, but we won't necessarily
+	; end on a value x % 4 == 0, so the first entry from here into
+	; the 4x unrolled loop is potentially short in order to make up
+	; for it.
+	; Find: bytes_left - .X
+	txa
+	eor #$ff
+	sec	; to carry in the +1 for converting 2s complement of .X
+	adc bytes_left
+	; .A *= -1 to align it with the loop entry jump table
+	eor #$ff
+	inc
+	bra enter_loop
+
+done:
+	ldy X16::Reg::RAMBank
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+	lda data_page0
+	sta pcm_cur_h
+	stx pcm_cur_l
+	sty pcm_cur_bank
+	rts
+
+do_bankwrap:
+	lda #$a0
+	inc X16::Reg::RAMBank
+	bra no_bankwrap
+
+bytes_left:
 	.byte 0
 .endproc
 
@@ -439,6 +944,8 @@ isext:
 	jsr advanceptr
 	bcs error
 	jsr getzsmbyte
+	cmp #$40
+	bcc ispcm	
 	and #$3f
 	; eat the data bytes, up to 63 of them
 	tay
@@ -488,6 +995,46 @@ islooped:
 	sta zsm_ptr_h,x
 	sta PTR+1
 	jmp note_loop
+ispcm:
+	ldx prio
+	pha ; save count
+	jsr advanceptr
+	bcs error2
+	jsr getzsmbyte
+	beq ispcmctrl
+	cmp #1
+	beq ispcmrate
+	; PCM trigger
+	jsr advanceptr
+	bcs error2
+	jsr getzsmbyte
+	jsr _pcm_trigger_instrument
+endpcm:
+	pla ; restore count
+	dec
+	dec
+	bne ispcm
+	jmp nextnote
+ispcmctrl:
+	jsr advanceptr
+	bcs error2
+	jsr getzsmbyte
+	sta pcm_ctrl_shadow,x
+	cpx pcm_prio
+	bne endpcm
+	sta Vera::Reg::AudioCtrl
+	bra endpcm
+ispcmrate:
+	jsr advanceptr
+	bcs error2
+	jsr getzsmbyte
+	sta pcm_rate_shadow,x
+	cpx pcm_prio
+	bne endpcm
+	sta Vera::Reg::AudioRate
+	bra endpcm
+error2:
+	jmp error
 
 getzsmbyte:
 	lda zsm_ptr_bank,x
@@ -1212,7 +1759,7 @@ mode1:
 	sbc ringbuffer_end_h,x
 	beq shortpage
 	lda #255 ; max less than one page
-	bra loadit
+	bra check_eod
 mode2:
 	; start is greater than end
 	; (right boundary of load is end of page one page before start)
@@ -1222,7 +1769,7 @@ mode2:
 	sbc ringbuffer_end_h,x
 	beq shortpage
 	lda #255 ; max less than one page
-	bra loadit
+	bra check_eod
 shortpage:
 	; but first test if we need to skip the load entirely
 	lda stop_before
@@ -1230,17 +1777,37 @@ shortpage:
 	sbc ringbuffer_end_h,x
 	bne :+
 	lda ringbuffer_end_l,x
-	bne next ; skip the load, not enough ring buffer
+	jne next ; skip the load, not enough ring buffer
 	lda #$ff
-	bra loadit
+	bra check_eod
 :	; read to the end of the page
 	lda #$ff
 	eor ringbuffer_end_l,x
 	inc
-	bne loadit
+	bne check_eod
 	dec ; except when we'd ask for 256 bytes.  Ask for 255 instead
+check_eod:
+	sta tmp2 ; save requested byte count
+	lda streaming_eod_l,x
+	ora streaming_eod_m,x
+	ora streaming_eod_h,x
+	beq loadit ; we don't have an expected end-of-data
+	lda streaming_pos_h,x
+	cmp streaming_eod_h,x
+	bcc loadit ; high byte is different, plenty of time
+	lda streaming_eod_l,x
+	; carry already set
+	sbc streaming_pos_l,x
+	sta tmp1
+	lda streaming_eod_m,x
+	sbc streaming_pos_m,x
+	bne loadit ; med byte is at least 256 away
+	lda tmp1
+	beq reopen ; we are already at the end, 0 left
+	cmp tmp2
+	bcs loadit ; requested bytes < what we have left
+	sta tmp2   ; we need exactly this many bytes to reach EOD
 loadit:
-	pha ; save requested byte count
 	lda streaming_lfn_sa,x
 	tax
 	jsr X16::Kernal::CHKIN
@@ -1248,11 +1815,12 @@ loadit:
 	ldy ringbuffer_end_h,x
 	lda ringbuffer_end_l,x
 	tax
-	pla ; restore requested byte count
+	lda tmp2 ; restore requested byte count
 	clc
 	jsr X16::Kernal::MACPTR
 	bcs error
 	txa
+	sta tmp1 ; store the number of bytes fetched
 	ldx prio
 	php ; mask interrupts while changing the lo/hi of end
 	sei
@@ -1264,7 +1832,15 @@ loadit:
 	bcc :+
 	lda ringbuffer_start_page,x ; we wrap now
 :	sta ringbuffer_end_h,x
-	plp ; restore interrupt mask state
+	lda tmp1 ; restore the number of bytes fetched
+	clc
+	adc streaming_pos_l,x
+	sta streaming_pos_l,x
+	bcc :+
+	inc streaming_pos_m,x
+	bne :+
+	inc streaming_pos_h,x
+:	plp ; restore interrupt mask state
 	; now check for EOI
 	jsr X16::Kernal::READST
 	and #$40
@@ -1272,6 +1848,7 @@ loadit:
 	; we reached EOI, re-seek next call if we loop
 	lda loop_enable,x
 	beq finish
+reopen:
 	lda #$80
 	sta streaming_reopen,x
 check_enough:
@@ -1353,6 +1930,8 @@ stop_before:
 	sty ZSF1+1
 	PRESERVE_BANK_CLOBBER_A_P
 
+	stz prio_playable,x
+
 	lda times_fn_max_length,x
 	clc
 	adc #<streaming_filename
@@ -1372,7 +1951,7 @@ ZSF2 = *-2
 done:
 	tya
 	sta streaming_filename_len,x
-	stz prio_playable,x
+	stz pcm_table_exists,x
 
 	jsr _open_and_parse
 	RESTORE_BANK
@@ -1431,10 +2010,13 @@ noerr2:
 	jsr X16::Kernal::BASIN
 	sta streaming_loop_point_h,x
 
-	; PCM offset, ignore
+	; PCM offset
 	jsr X16::Kernal::BASIN
+	sta streaming_eod_l,x
 	jsr X16::Kernal::BASIN
+	sta streaming_eod_m,x
 	jsr X16::Kernal::BASIN
+	sta streaming_eod_h,x
 
 	; FM channel mask
 	jsr X16::Kernal::BASIN
@@ -1475,6 +2057,11 @@ noerr2:
 
 	; finish setup of state
 	ldx prio
+	lda #16
+	sta streaming_pos_l,x
+	stz streaming_pos_m,x
+	stz streaming_pos_h,x
+
 	stz delay_f,x
 	stz delay_l,x
 	stz delay_h,x
@@ -1766,8 +2353,51 @@ noerr1:
 	stz loop_enable,x
 	ror loop_enable,x
 
-	; ignore buff offset 6 7 8 (PCM offset)
+	stz pcm_table_exists,x
+	lda buff+8
+	ora buff+7
+	ora buff+6
+	beq nopcm
 
+	; buff offset 6 7 8 (PCM offset)
+	lda buff+8 ; PCM offset [23:16]
+	asl        ; each of these is
+	asl        ; worth 64 k
+	asl        ; or 8 banks
+	clc
+	adc buff+18 ; start bank
+	sta pcm_table_bank,x
+
+	lda buff+7 ; PCM offset [15:8]
+	lsr        ; each of these
+	lsr        ; is worth a page
+	lsr        ; and 32 of them
+	lsr        ; is worth
+	lsr        ; one 8k bank
+	clc
+	adc pcm_table_bank,x
+	sta pcm_table_bank,x	
+
+	lda buff+7 ; keep the remainder
+	and #$1f   ; which when added to the start
+	sta buff+19 ; will be < $ff
+
+	lda buff+6 ; PCM offset [7:0]
+	clc
+	adc buff+16 ; start of zsm data (LSB)
+	sta pcm_table_l,x
+	lda buff+19 ; PCM offset [12:8]
+	adc buff+17 ; start of zsm data (MSB)
+:	cmp #$c0    ; if we're past
+	bcc :+
+	sbc #$20    ; subtract $20
+	inc pcm_table_bank,x ; and increment bank
+	bra :-
+:	sta pcm_table_h,x ; and we're done figuring out the PCM table location
+
+	lda #$80
+	sta pcm_table_exists,x
+nopcm:
 	; FM channel mask
 	lda buff+9
 	ldy prio
@@ -1965,3 +2595,24 @@ rr_c2:
 .repeat 8, i
 	.byte $f8+i
 .endrepeat
+
+; ZSound-derived FIFO-fill LUTs
+pcmrate_fast: ; <<4 for 16+stereo, <<3 for 16|stereo, <<2 for 8+mono
+	.byte $03,$04,$06,$07,$09,$0B,$0C,$0E,$10,$11,$13,$15,$16,$17,$19,$1A
+	.byte $1C,$1E,$1F,$21,$22,$24,$26,$27,$29,$2A,$2C,$2E,$2F,$31,$33,$34
+	.byte $36,$37,$39,$3B,$3C,$3E,$3F,$41,$43,$44,$46,$47,$49,$4B,$4C,$4E
+	.byte $50,$51,$53,$54,$56,$58,$59,$5B,$5C,$5E,$60,$61,$63,$65,$66,$68
+	.byte $69,$6B,$6D,$6E,$70,$71,$73,$75,$76,$78,$79,$7B,$7D,$7E,$80,$82
+	.byte $83,$85,$86,$88,$8A,$8B,$8D,$8E,$90,$92,$93,$95,$97,$98,$9A,$9B
+	.byte $9D,$9F,$A0,$A2,$A3,$A5,$A7,$A8,$AA,$AC,$AD,$AF,$B0,$B2,$B4,$B5
+	.byte $B7,$B8,$BA,$BC,$BD,$BF,$C0,$C2,$C4,$C5,$C7,$C9,$CA,$CC,$CD,$CF
+
+pcmrate_slow:
+	.byte $01,$02,$04,$05,$07,$09,$0A,$0C,$0E,$0F,$11,$12,$14,$16,$17,$19
+	.byte $1A,$1C,$1E,$1F,$21,$22,$24,$26,$27,$29,$2A,$2C,$2E,$2F,$31,$32
+	.byte $34,$36,$37,$39,$3A,$3C,$3D,$3F,$41,$42,$44,$45,$47,$49,$4A,$4C
+	.byte $4D,$4F,$51,$52,$54,$55,$57,$58,$5A,$5C,$5D,$5F,$60,$62,$64,$65
+	.byte $67,$68,$6A,$6C,$6D,$6F,$70,$72,$74,$75,$77,$78,$7A,$7B,$7D,$7F
+	.byte $80,$82,$83,$85,$87,$88,$8A,$8B,$8D,$8F,$90,$92,$93,$95,$96,$98
+	.byte $9A,$9B,$9D,$9E,$A0,$A2,$A3,$A5,$A6,$A8,$AA,$AB,$AD,$AE,$B0,$B1
+	.byte $B3,$B5,$B6,$B8,$BA,$BC,$BE,$BF,$C1,$C2,$C4,$C6,$C7,$C9,$CA,$CC
