@@ -444,9 +444,11 @@ check_inst_bounds:
 	cmp tmp_inst
 	jcc error ; the last instrument known is a lower index than the one requested
 
-	; multiply the offset by 8
+	; multiply the offset by 16
 	tya
 	stz tmp_inst
+	asl
+	rol tmp_inst
 	asl
 	rol tmp_inst
 	asl
@@ -539,6 +541,8 @@ check_inst_bounds:
 	bne :+
 	inc tmp_inst
 :	asl
+	rol tmp_inst
+	asl
 	rol tmp_inst
 	asl
 	rol tmp_inst
