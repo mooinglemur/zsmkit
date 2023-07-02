@@ -65,6 +65,7 @@ vera_psg_atten_shadow:  .res NUM_PRIORITIES*16
 
 pcm_ctrl_shadow:        .res NUM_PRIORITIES
 pcm_rate_shadow:        .res NUM_PRIORITIES
+pcm_atten_shadow:       .res NUM_PRIORITIES
 
 ; These two arrays are set via properties on the ZSM
 ; based on which voices are used.  If the priority slot
@@ -408,13 +409,19 @@ not_busy:
 	; we're going to switch priorities, so we need to reshadow the CTRL
 	; and the rate
 	lda pcm_ctrl_shadow,x
-	and #$3f
-	sta TC
+	and #$0f
+	sec
+	sbc pcm_atten_shadow,x
+	bpl :+
+	lda #0
+:	sta TC
 	lda pcm_rate_shadow,x
 	sta Vera::Reg::AudioRate
 	stx pcm_prio
 no_reshadow:
 	; nuke any fifo contents immediately
+	; and set the volume
+	; we'll set the stereo/depth bits later
 	lda #$ff
 TC = *-1
 	ora #$80
@@ -614,7 +621,7 @@ tmp_max_inst:
 
 	ldx Vera::Reg::AudioRate
 	stx RR ; self mod to restore the rate if we happen to zero it to do the
-	; initial load
+	       ; initial load
 	dex
 	lda Vera::Reg::ISR
 	and #$08 ; AFLOW
@@ -1027,8 +1034,24 @@ ispcmctrl:
 	sta pcm_ctrl_shadow,x
 	cpx pcm_prio
 	bne endpcm
+	and #$0f
+	sec
+	sbc pcm_atten_shadow,x
+	bpl :+
+	lda #0
+:	sta AV
+	lda pcm_ctrl_shadow,x
+	and #$80
+	ora #$0f
+AV = *-1
+	sta AV
+	lda Vera::Reg::AudioCtrl
+	and #$30
+	ora AV
 	sta Vera::Reg::AudioCtrl
-	bra endpcm
+	bpl :+ ; if we just reset the fifo, the PCM channel is no longer busy
+	stz pcm_busy
+:	bra endpcm
 ispcmrate:
 	jsr advanceptr
 	bcs error2
@@ -1206,6 +1229,43 @@ exit:
 	rts
 .endproc
 
+;................
+; _opm_fast_release :
+;============================================================================
+; Arguments: Y = voice
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+.proc _opm_fast_release: near
+	sty VOICE
+	; set release phase to $ff for this voice
+	lda #$ff
+	ldy #$00
+VOICE = * -1
+	ldx rr_m1,y
+	jsr ym_write
+
+	ldy VOICE
+	ldx rr_m2,y
+	jsr ym_write
+
+	ldy VOICE
+	ldx rr_c1,y
+	jsr ym_write
+
+	ldy VOICE
+	ldx rr_c2,y
+	jsr ym_write
+
+	; release voice
+	lda VOICE
+	jsr ym_release
+
+	rts
+.endproc
+
 ;............
 ; _reshadow :
 ;============================================================================
@@ -1230,27 +1290,8 @@ opmloop:
 	cmp #NUM_PRIORITIES
 	bcs opmnext ; this happens immediately after a voice stops but no other song is taking over
 
-	; set release phase to $ff for this voice
-	lda #$ff
 	ldy voice
-	ldx rr_m1,y
-	jsr ym_write
-
-	ldy voice
-	ldx rr_m2,y
-	jsr ym_write
-
-	ldy voice
-	ldx rr_c1,y
-	jsr ym_write
-
-	ldy voice
-	ldx rr_c2,y
-	jsr ym_write
-
-	; release voice
-	lda voice
-	jsr ym_release
+	jsr _opm_fast_release
 
 	; reshadow all parameters
 	ldy voice
@@ -1369,19 +1410,27 @@ voice:
 ; Allowed in interrupt handler: no
 ; ---------------------------------------------------------------------------
 ;
-; Sets the attenuation value of a song.  $00 = full volume, $3F-7F = muted
-; At $3F, the OPM is very close to muted and the PSG is definitely muted
-; At $7F, both will be muted
+; Sets the attenuation value of a song.  $00 = full volume, $3F = muted
 .proc zsm_setatten: near
 	; psg steps are 0.5dB
+	; pcm steps average 1.2dB but for simplicity we're treating them as 2dB
 	; opm steps are 0.75dB
+	cmp #$40
+	bcc :+
+	lda #$3f
 	sta val
+	lda #$7f
+	sta valopm
+	bra bounds_checked
+:	sta val
 	lsr
 	sta valopm
 	lda val
 	sec
 	sbc valopm
 	sta valopm
+
+bounds_checked:
 	stx prio
 
 	PRESERVE_BANK_CLOBBER_A_P
@@ -1408,6 +1457,28 @@ voice:
 	php ; protect critical section
 	sei
 
+; PCM
+	lda val
+	lsr
+	lsr
+	sta pcm_atten_shadow,x
+	cpx pcm_prio
+	bne dopsg
+	sta PA
+	lda pcm_ctrl_shadow,x
+	and #$0f
+	sec
+	sbc #$00
+PA = *-1
+	bpl :+
+	lda #0
+:	sta PA
+	lda Vera::Reg::AudioCtrl
+	and #$30
+	ora PA
+	sta Vera::Reg::AudioCtrl
+
+dopsg:
 	ldy #0
 psgloop:
 	lda vera_psg_priority,y
@@ -1589,10 +1660,7 @@ opmloop:
 	cmp prio
 	bne opmnext
 	phy
-	tya
-	ldx #8
-	jsr ym_write
-	; perhaps we should set fast release here too
+	jsr _opm_fast_release
 	ply
 opmnext:
 	iny
@@ -1600,6 +1668,14 @@ opmnext:
 	bne opmloop
 
 	ldx prio
+	cpx pcm_prio
+	bne no_pcm_halt
+	lda Vera::Reg::AudioCtrl
+	and #$3f
+	ora #$80
+	sta Vera::Reg::AudioCtrl
+	stz pcm_busy
+no_pcm_halt:
 	stz prio_active,x
 	lda #$80
 	sta recheck_priorities
