@@ -501,8 +501,8 @@ check_inst_bounds:
 
 	; these will need to be processed
 	pla
-.repeat 5
-	asl ; x32
+.repeat 3
+	asl ; x8
 .endrepeat
 	sta pcm_cur_bank
 
@@ -549,6 +549,7 @@ check_inst_bounds:
 	asl
 	rol tmp_inst
 
+	adc #4 ; instrument table preamble size
 	adc pcm_cur_l
 	sta pcm_cur_l
 	lda tmp_inst
