@@ -1109,16 +1109,12 @@ nextnote:
 	bmi note_loop
 exit:
 	rts
-plaxerror:
+plaerror:
 	pla
-plxerror:
-	plx
 error:
-	lda #$80
-	sta recheck_priorities
+	ldx prio
 	stz prio_playable,x
-	stz prio_active,x
-	rts
+	jmp _stop_sound
 isdata:
 	cmp #$40
 	beq isext
@@ -1127,7 +1123,7 @@ isdata:
 	stx prio
 	pha
 	jsr advanceptr
-	bcs plaxerror
+	bcs plaerror
 	jsr getzsmbyte
 	plx
 	sta vera_psg_shadow,x ; operand is overwritten at sub entry
@@ -1167,7 +1163,7 @@ opmloop:
 	stx prio
 	pha
 	jsr advanceptr
-	bcs plaxerror
+	bcs plaerror
 	jsr getzsmbyte
 	plx
 	sta opm_shadow,x ; operand is overwritten at sub entry
@@ -1837,12 +1833,35 @@ prio:
 	lda prio_active,x
 	beq exit
 
-	stx prio
+	jsr _stop_sound
+exit:
+	plp ; restore interrupt mask state
+	pla
+	sta X16::Reg::ROMBank
+	RESTORE_BANK
+	rts
+.endproc
+
+
+;..............
+; _stop_sound :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; stops sound on all channels in the current priority, used by zsm_stop
+; and in the tick routine if a streaming song runs out of data
+.proc _stop_sound: near
+	stx PR
 
 	ldy #0
 psgloop:
 	lda vera_psg_priority,y
-	cmp prio
+	cmp #$00
+PR = * - 1
 	bne psgnext
 	phy
 	tya
@@ -1857,7 +1876,7 @@ psgnext:
 	ldy #0
 opmloop:
 	lda opm_priority,y
-	cmp prio
+	cmp PR
 	bne opmnext
 	phy
 	jsr _opm_fast_release
@@ -1867,7 +1886,7 @@ opmnext:
 	cpy #8
 	bne opmloop
 
-	ldx prio
+	ldx PR
 	cpx pcm_prio
 	bne no_pcm_halt
 	lda Vera::Reg::AudioCtrl
@@ -1880,15 +1899,9 @@ no_pcm_halt:
 	lda #$80
 	sta recheck_priorities
 
-exit:
-	plp ; restore interrupt mask state
-	pla
-	sta X16::Reg::ROMBank
-	RESTORE_BANK
 	rts
-prio:
-	.byte 0
 .endproc
+
 
 ;...........
 ; zsm_play :
@@ -2021,6 +2034,13 @@ loop:
 
 	jsr _open_zsm ; does not clobber x
 
+	lda streaming_loop_point_l,x
+	sta streaming_pos_l,x
+	lda streaming_loop_point_m,x
+	sta streaming_pos_m,x
+	lda streaming_loop_point_h,x
+	sta streaming_pos_h,x
+
 	stz streaming_reopen,x
 	jmp next
 no_reopen:
@@ -2084,7 +2104,7 @@ check_eod:
 	sbc streaming_pos_m,x
 	bne loadit ; med byte is at least 256 away
 	lda tmp1
-	beq reopen ; we are already at the end, 0 left
+	beq check_if_loopable ; we are already at the end, 0 left
 	cmp tmp2
 	bcs loadit ; requested bytes < what we have left
 	sta tmp2   ; we need exactly this many bytes to reach EOD
@@ -2127,9 +2147,9 @@ loadit:
 	and #$40
 	beq check_enough
 	; we reached EOI, re-seek next call if we loop
+check_if_loopable:
 	lda loop_enable,x
 	beq finish
-reopen:
 	lda #$80
 	sta streaming_reopen,x
 check_enough:
@@ -2146,10 +2166,14 @@ next:
 	RESTORE_BANK
 	rts
 error:
+	php
+	sei
+
 	ldx prio
 	stz prio_playable,x
-	lda #$80
-	sta recheck_priorities
+	jsr _stop_sound
+	
+	plp
 finish:
 	jsr X16::Kernal::CLRCHN
 	ldx prio

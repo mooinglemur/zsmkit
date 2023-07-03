@@ -108,9 +108,9 @@ Inputs: .X = priority, .A .Y = pointer (lo hi) in low RAM to null-terminated fil
 ```
 This is an alternate song-loading method. It sets up a priority slot to stream a ZSM file from disk (SD card). The file is opened and stays open for as long as the song is playable (i.e. until `zsm_close` is called, or another song is loaded into the priority).  Instead of holding the entire ZSM in memory, it is streamed from the file in small chunks and held in a small ring buffer inside the bank assigned to ZSMKit.
 
-This method is currently not supported for ZSM files that contain PCM data.
+For ZSM files that contain PCM data, the song will play without triggering the PCM events.
 
-Whenever this method is used to play a song, `zsm_fill_buffers` must be called in the main part of the program in-between ticks.
+Whenever this method is used to play a song, `zsm_fill_buffers` must be called in the main part of the program in between ticks.
 
 See `zsm_setlfs` for LFN/device/SA defaults that are used by the engine.
 
