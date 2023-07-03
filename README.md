@@ -84,7 +84,7 @@ SEGMENTS {
 
 ## API Quick Reference
 
-### API calls for main part of the program
+### API calls for main part of the program (ZSM)
 
 All calls except for `zsm_tick` are meant to be called from the main loop of the program. `zsm_tick` is the only routine that is safe to call from IRQ.
 
@@ -98,7 +98,7 @@ This routine *must* be called once before any other library routines are called 
 ---
 #### `zsm_setmem`
 ```
-Inputs: .X = priority, .A .Y = memory loction (lo hi), $00 = RAM bank
+Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
 ```
 Sets up the song pointers and parses the header based on a ZSM that was previously loaded into RAM. If the song is valid, it marks the priority slot as playable.
 
@@ -108,6 +108,8 @@ Sets up the song pointers and parses the header based on a ZSM that was previous
 Inputs: .X = priority, .A .Y = pointer (lo hi) in low RAM to null-terminated filename
 ```
 This is an alternate song-loading method. It sets up a priority slot to stream a ZSM file from disk (SD card). The file is opened and stays open for as long as the song is playable (i.e. until `zsm_close` is called, or another song is loaded into the priority).  Instead of holding the entire ZSM in memory, it is streamed from the file in small chunks and held in a small ring buffer inside the bank assigned to ZSMKit.
+
+This method is currently not supported for ZSM files that contain PCM data.
 
 Whenever this method is used to play a song, `zsm_fill_buffers` must be called in the main part of the program in-between ticks.
 
@@ -127,7 +129,7 @@ Cleans up any file I/O associated with a priority slot (if it's a song in stream
 ```
 Inputs: .X = priority
 ```
-Starts playback of a song.  If `zsm_stop` was called, this function continues playback from the point that it was stopped.  If the file is being streamed rather than played back from memory
+Starts playback of a song.  If `zsm_stop` was called, this function continues playback from the point that it was stopped.  If the file is being streamed rather than played back from memory, this routine will ensure that the ring buffer is at least partially filled.
 
 ---
 #### `zsm_stop`
@@ -149,9 +151,9 @@ Stops playback of a song (if it is already playing) and resets its pointer to th
 Inputs: .X = priority, .A = attenuation value
 ```
 
-Changes the master volume of a priority slot by setting an attenuation value. A value of 0 implies no attenuation (full volume) and a value of $7F is full mute.  A value of $3F will be quiet enough to mute all PSG channels and the YM2151 should effectively be muted but may be minimally audible. A value of $7F should be sufficient to mute all audio.
+Changes the master volume of a priority slot by setting an attenuation value. A value of $00 implies no attenuation (full volume) and a value of $3F is full mute.
 
-Attenuation is set on all active channels for the priority. The YM2151's attenuation (0.75 dB native) is scaled lower so that it matches the 0.5 dB per step of the VERA PSG.
+Attenuation is set on all active channels for the priority, and will also affect PCM events played on the priority. The YM2151's attenuation (0.75 dB native) is scaled lower so that it matches the 0.5 dB per step of the VERA PSG. PCM attenuation is scaled to 1/4 the input value.
 
 ---
 
@@ -181,6 +183,31 @@ Priority 3: lfn/sa 14, device 8
 
 ---
 
+### API calls for main part of the program (ZCM)
+
+ZCM files are PCM data files with an 8-byte header indicating their bit depth, number of channels, and length. In order for ZSMKit to play them, they must be loaded into memory first, and their location in memory given to ZSMKit via the `zcm_setmem` routine. ZSMKit can track up to 32 ZCMs in memory, slots 0-31, though it's likely you'd exhaust high RAM before having that many loaded at once.
+
+---
+#### `zcm_setmem`
+```
+Inputs: .X = slot, .A .Y = memory loction (lo hi), $00 = RAM bank
+```
+Tells ZSMKit where to find a ZCM (PCM sample) image.  This image has an 8-byte header followed by raw PCM
+
+---
+#### `zcm_play`
+```
+Inputs: .X = slot, .A = volume
+```
+Starts playback of a ZCM PCM sample. This playback will take priority over any other PCM events in progress until either playback finishes or it is explicitly stopped with `zcm_stop`.
+
+---
+#### `zcm_stop`
+```
+Inputs: none
+```
+If a ZCM is playing when this routine is called, playback is immediately stopped. If a non-ZCM PCM sound is playing, or nothing is playing on the PCM channel, this routine does nothing.
+
 ### API calls for interrupt handler
 
 This routine is the only one that is safe to call from an IRQ handler.
@@ -190,7 +217,7 @@ This routine is the only one that is safe to call from an IRQ handler.
 ```
 Inputs: none
 ```
-This routine handles everything that is necessary to play the currently active songs. If required, it will handle restoring channel states if, for instance, if two songs are playing, then the higher priority song stops playing.
+This routine handles everything that is necessary to play the currently active songs, and to feed the PCM FIFO if any PCM events are in progress. If required, it will handle restoring channel states if, for instance, a higher priority ZSM ends or is stopped while a lower priority one is also playing.
 
 Call this routine once per tick.  You will usually want to do this at the end of your interrupt handler routine.
 

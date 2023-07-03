@@ -9,3 +9,7 @@
 .import zsm_setfile
 .import zsm_setmem
 .import zsm_setatten
+
+.import zcm_setmem
+.import zcm_play
+.import zcm_stop

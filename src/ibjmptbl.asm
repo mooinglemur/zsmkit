@@ -20,3 +20,6 @@ nop
 .endif
 jmp zsm_setmem  ; $082B / $084B
 jmp zsm_setatten ; $082E / $084E
+jmp zcm_setmem  ; $0831 / $0851
+jmp zcm_play    ; $0834 / $0854
+jmp zcm_stop    ; $0837 / $0857

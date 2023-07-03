@@ -29,6 +29,10 @@ zsmkit_lib:
 	romsub $084b = zsm_setmem(ubyte prio @X, uword data_ptr @AY) clobbers(A, X, Y)
 	romsub $084e = zsm_setatten(ubyte prio @X, ubyte value @A) clobbers(A, X, Y)
 
+	romsub $0851 = zcm_setmem(ubyte slot @X, uword data_ptr @AY) clobbers(A, X, Y)
+	romsub $0854 = zcm_play(ubyte slot @X, volume @A) clobbers(A, X, Y)
+	romsub $0857 = zcm_stop() clobbers(A, X, Y)
+
 	const ubyte zsmkit_bank = 1
 
 	sub start() {

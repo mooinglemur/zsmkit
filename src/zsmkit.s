@@ -18,7 +18,12 @@
 .export zsm_setatten
 .export zsm_rewind
 
+.export zcm_setmem
+.export zcm_play
+.export zcm_stop
 
+
+NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 4
 FILENAME_MAX_LENGTH = 64
 RINGBUFFER_SIZE = 1024
@@ -190,7 +195,8 @@ pcm_table_l:            .res NUM_PRIORITIES
 pcm_table_h:            .res NUM_PRIORITIES
 
 ; The prio that currently has a PCM event going
-; $10 means ZCM is/was playing
+; $80 means ZCM is/was playing
+; ZCM always takes over the PCM channel
 pcm_prio:               .res 1
 
 ; Set while playing.  Higher priorities can take over
@@ -207,6 +213,10 @@ pcm_cur_h:              .res 1
 pcm_remain_l:           .res 1
 pcm_remain_m:           .res 1
 pcm_remain_h:           .res 1
+
+zcm_mem_bank:           .res NUM_ZCM_SLOTS
+zcm_mem_l:              .res NUM_ZCM_SLOTS
+zcm_mem_h:              .res NUM_ZCM_SLOTS
 
 ; These arrays contain $FF if the voice is unused or will contain
 ; the priority (0-3) of the module that is allowed to use the voice.
@@ -235,7 +245,7 @@ _ZSM_BANK_END := *
 
 
 .segment "ZSMKITLIB"
-;..............
+;..................
 ; zsm_init_engine :
 ;============================================================================
 ; Arguments: .A = designated RAM bank to use for ZSMKit engine state
@@ -323,6 +333,7 @@ prioloop:
 	lda #%00000100 ; DCSEL=2
 	sta Vera::Reg::Ctrl
 	lda $9f29 ; FX Ctrl
+	; stz $9f29 - can't do this until Box16 accepts FX merge
 	sta FX1
 	stz Vera::Reg::Ctrl
 	lda Vera::Reg::AddrL
@@ -376,6 +387,185 @@ R1 = *-1
 	rts
 prio:
 	.byte 0
+.endproc
+
+;.............
+; zcm_setmem :
+;============================================================================
+; Arguments: .X = ZCM slot, .A .Y = data pointer, $00 = ram bank
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the start of memory for a digital sample (ZCM format)
+.proc zcm_setmem: near
+	sta AL
+	lda X16::Reg::RAMBank
+	sta BK
+	PRESERVE_BANK_CLOBBER_A_P
+	txa
+	cmp #NUM_ZCM_SLOTS
+	bcs end
+
+	lda #$00
+AL = * - 1
+	sta zcm_mem_l,x
+	tya
+	sta zcm_mem_h,x
+	lda #$00
+BK = * - 1
+	sta zcm_mem_bank,x
+
+end:
+	RESTORE_BANK
+	rts
+.endproc
+
+
+;...........
+; zcm_play :
+;============================================================================
+; Arguments: .X = ZCM slot, .A = volume
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Begins playback of a ZCM digital sample
+.proc zcm_play: near
+	and #$0f
+	ora #$80
+	sta VR
+	PRESERVE_BANK_CLOBBER_A_P
+
+	txa
+	cmp #NUM_ZCM_SLOTS
+	bcs end
+
+	; If high byte of address is zero, it's not valid
+	lda zcm_mem_h,x
+	beq end
+	sta AH
+	lda zcm_mem_l,x
+	sta AL
+
+	lda zcm_mem_bank,x
+	sta X16::Reg::RAMBank
+
+	ldx #0
+check_sig:
+	jsr get_next_byte
+	cmp #$00
+	bne end ; we didn't see three zeroes where we expected it
+	inx
+	cpx #3
+	bcc check_sig
+
+	; start critical section
+	php
+	sei
+
+	; slurp up the length, geometry, and rate
+	ldx #5
+:	jsr get_next_byte
+	pha
+	dex
+	bne :-	
+
+	; save bank
+	lda X16::Reg::RAMBank
+	pha
+
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+
+	pla ; bank
+	sta pcm_cur_bank
+
+	lda AL
+	sta pcm_cur_l
+
+	lda AH
+	sta pcm_cur_h
+
+	pla ; rate
+	sta Vera::Reg::AudioRate
+
+	pla ; geometry
+	and #$30
+	ora #$8f
+VR = * - 1
+	sta Vera::Reg::AudioCtrl
+
+	pla ; size h
+	sta pcm_remain_h
+
+	pla ; size m
+	sta pcm_remain_m
+
+	pla ; size l
+	sta pcm_remain_l
+
+
+
+	lda #$80
+	sta pcm_busy
+	sta pcm_prio
+
+	plp ; restore interrupt mask state
+end:
+	RESTORE_BANK
+	rts
+
+get_next_byte:
+	lda $ffff
+AL = *-2
+AH = *-1
+	inc AL
+	bne gnb2
+	inc AH
+validate_pt:
+	pha
+	lda AH
+	cmp #$c0
+	bcc gnb1
+	sbc #$20
+	sta AH
+	inc X16::Reg::RAMBank
+gnb1:
+	pla
+gnb2:
+	rts
+
+.endproc
+
+;...........
+; zcm_stop :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Stops playback of a ZCM if one is playing
+; Does not stop the PCM channel if a ZSM's PCM event is playing
+.proc zcm_stop: near
+	PRESERVE_BANK_CLOBBER_A_P
+
+	php
+	sei
+
+	lda pcm_busy
+	beq end ; nothing playing
+
+	lda pcm_prio
+	bpl end ; not a ZCM playing
+
+	sta Vera::Reg::AudioCtrl ; reset bit is set from pcm_prio
+	stz pcm_busy
+end:
+	plp
+	RESTORE_BANK
+	rts
 .endproc
 
 ;..........................
@@ -1229,7 +1419,7 @@ exit:
 	rts
 .endproc
 
-;................
+;....................
 ; _opm_fast_release :
 ;============================================================================
 ; Arguments: Y = voice
@@ -1239,28 +1429,38 @@ exit:
 ; ---------------------------------------------------------------------------
 ;
 .proc _opm_fast_release: near
-	sty VOICE
-	; set release phase to $ff for this voice
+	phy
+	tya
+	clc
+	adc #$e0
+	sta RR1
+	adc #$08
+	sta RR2
+	adc #$08
+	sta RR3
+	adc #$08
+	sta RR4
+
+	; set release phase to $ff for this voice	
 	lda #$ff
-	ldy #$00
-VOICE = * -1
-	ldx rr_m1,y
+	ldx #$e0
+RR4 = *-1
 	jsr ym_write
 
-	ldy VOICE
-	ldx rr_m2,y
+	ldx #$e8
+RR3 = *-1
 	jsr ym_write
 
-	ldy VOICE
-	ldx rr_c1,y
+	ldx #$f0
+RR2 = *-1
 	jsr ym_write
 
-	ldy VOICE
-	ldx rr_c2,y
+	ldx #$f8
+RR1 = *-1
 	jsr ym_write
 
 	; release voice
-	lda VOICE
+	pla
 	jsr ym_release
 
 	rts
@@ -2602,29 +2802,6 @@ prio:
 .endproc
 
 
-
-.proc _print_hex: near
-	pha
-	lsr
-	lsr
-	lsr
-	lsr
-	tay
-	lda table,y	
-	jsr X16::Kernal::BSOUT
-
-	pla
-	and #$0f
-	tay
-	lda table,y	
-	jsr X16::Kernal::BSOUT
-
-	rts
-
-table:
-	.byte "0123456789ABCDEF"
-.endproc
-
 .ifdef ZSMKIT_ENABLE_STREAMING
 ringbuffer_start_page:
 .repeat NUM_PRIORITIES, i
@@ -2655,26 +2832,6 @@ times_16:
 times_64:
 .repeat NUM_PRIORITIES, i
 	.byte i*64
-.endrepeat
-
-rr_m1:
-.repeat 8, i
-	.byte $e0+i
-.endrepeat
-
-rr_m2:
-.repeat 8, i
-	.byte $e8+i
-.endrepeat
-
-rr_c1:
-.repeat 8, i
-	.byte $f0+i
-.endrepeat
-
-rr_c2:
-.repeat 8, i
-	.byte $f8+i
 .endrepeat
 
 ; ZSound-derived FIFO-fill LUTs

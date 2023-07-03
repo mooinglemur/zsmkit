@@ -9,3 +9,6 @@ zsm_setlfs  = $0825
 zsm_setfile = $0828
 zsm_setmem  = $082B
 zsm_setatten = $082E
+zcm_setmem  = $8031
+zcm_play    = $8034
+zcm_stop    = $8037
