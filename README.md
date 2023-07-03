@@ -13,6 +13,7 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 * Looping
 * Pausing and resuming playback
 * ZSM tick rates other than 60 are normalized to 60
+* ZCM playback support
 
 It also has these features that ZSound currently lacks:
 
@@ -20,6 +21,7 @@ It also has these features that ZSound currently lacks:
 * Four playback slots (0-3)
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback.
 * "Master volume" control for each playback slot.
+* ZSM files with PCM tracks are now handled and their PCM data is played back
 
 These features are planned but not yet implemented
 * Callback from library into the application for loop/end notification
@@ -27,9 +29,6 @@ These features are planned but not yet implemented
 * Ability to fetch current song state
 * Feature to suspend specific channels for all priorities, allowing the channel/voice to be used outside of ZSMKit, such as simple in-game sound effects, for instance.
 
-This potential ZSM feature is missing from both ZSound and ZSMkit:
-
-* PCM channel playback
 
 ### Priority system
 
