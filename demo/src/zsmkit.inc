@@ -7,8 +7,18 @@
 .import zsm_fill_buffers
 .import zsm_setlfs
 .import zsm_setfile
+.import zsm_loadpcm
 .import zsm_setmem
 .import zsm_setatten
+.import zsm_setcb
+.import zsm_clearcb
+.import zsm_getstate
+.import zsm_setrate
+.import zsm_getrate
+.import zsm_setloop
+.import zsm_opmatten
+.import zsm_psgatten
+.import zsm_pcmatten
 
 .import zcm_setmem
 .import zcm_play

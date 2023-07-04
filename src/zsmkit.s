@@ -13,10 +13,20 @@
 .export zsm_fill_buffers
 .export zsm_setlfs
 .export zsm_setfile
+.export zsm_loadpcm
 .endif
 .export zsm_setmem
 .export zsm_setatten
 .export zsm_rewind
+.export zsm_setcb
+.export zsm_clearcb
+.export zsm_getstate
+.export zsm_setrate
+.export zsm_getrate
+.export zsm_setloop
+.export zsm_opmatten
+.export zsm_psgatten
+.export zsm_pcmatten
 
 .export zcm_setmem
 .export zcm_play
@@ -91,6 +101,11 @@ prio_active:            .res NUM_PRIORITIES
 ; It is set nonzero when a file is loaded and
 ; is ready
 prio_playable:          .res NUM_PRIORITIES
+
+; Callback is called whenever the song ends or loops
+callback_addr_l:        .res NUM_PRIORITIES
+callback_addr_h:        .res NUM_PRIORITIES
+callback_enabled:       .res NUM_PRIORITIES
 
 .ifdef ZSMKIT_ENABLE_STREAMING
 ; Is the song fully in memory or played through a 1k ring buffer?
@@ -173,6 +188,9 @@ zsm_ptr_h:              .res NUM_PRIORITIES
 
 ; For both streaming and non-streaming mode
 loop_enable:            .res NUM_PRIORITIES
+
+loop_number_l:          .res NUM_PRIORITIES
+loop_number_h:          .res NUM_PRIORITIES
 
 ; Hz (from file)
 tick_rate_l:            .res NUM_PRIORITIES
@@ -403,8 +421,7 @@ prio:
 	lda X16::Reg::RAMBank
 	sta BK
 	PRESERVE_BANK_CLOBBER_A_P
-	txa
-	cmp #NUM_ZCM_SLOTS
+	cpx #NUM_ZCM_SLOTS
 	bcs end
 
 	lda #$00
@@ -437,8 +454,7 @@ end:
 	sta VR
 	PRESERVE_BANK_CLOBBER_A_P
 
-	txa
-	cmp #NUM_ZCM_SLOTS
+	cpx #NUM_ZCM_SLOTS
 	bcs end
 
 	; If high byte of address is zero, it's not valid
@@ -504,8 +520,6 @@ VR = * - 1
 
 	pla ; size l
 	sta pcm_remain_l
-
-
 
 	lda #$80
 	sta pcm_busy
@@ -1176,6 +1190,10 @@ OS = *-1
 	bne opmloop
 	jmp nextnote
 islooped:
+	inc loop_number_l,x
+	bne :+
+	inc loop_number_h,x
+:
 .ifdef ZSMKIT_ENABLE_STREAMING
 	; if we're in streaming mode, we basically ignore the eod
 	; and assume there's valid ZSM data that's been fetched
@@ -1597,10 +1615,388 @@ voice:
 	.byte 0
 .endproc
 
+
+;...............
+; zsm_getstate :
+;============================================================================
+; Arguments: .X = priority
+; Returns: .C set if playing, .Z set if not playable, .A .Y (lo hi) loop number
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Gets the current song state
+;
+.proc zsm_getstate: near
+	PRESERVE_BANK_CLOBBER_A_P
+
+	lda prio_active,x
+	cmp #$00
+	lda prio_playable,x
+	php
+
+	lda loop_number_l,x
+	ldy loop_number_h,x
+	
+	tax
+	RESTORE_BANK
+	txa
+	plp
+
+	rts
+.endproc
+
+;..............
+; zsm_setcb :
+;============================================================================
+; Arguments: .X = priority, .A .Y (lo hi) of callback address
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the callback address for the priority
+; This will get called whenever the song ends on its own or loops
+;
+.proc zsm_setcb: near
+	pha
+	PRESERVE_BANK_CLOBBER_A_P
+	pla
+
+	stz callback_enabled,x
+
+	sta callback_addr_l,x
+	tya
+	sta callback_addr_h,x
+
+	lda #$80
+	sta callback_enabled,x
+
+	RESTORE_BANK
+	rts
+.endproc
+
+
+;..............
+; zsm_clearcb :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Clears the callback
+.proc zsm_clearcb: near
+	PRESERVE_BANK_CLOBBER_A_P
+
+	stz callback_enabled,x
+
+	RESTORE_BANK
+	rts
+.endproc
+
+
+;..............
+; zsm_setrate :
+;============================================================================
+; Arguments: .X = priority, .A .Y (lo hi) of tick rate
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the current tick rate of the song.
+.proc zsm_setrate: near
+	pha
+	PRESERVE_BANK_CLOBBER_A_P
+	pla
+	sta tick_rate_l,x
+	tya
+	sta tick_rate_h,x
+
+	php
+	sei
+
+	jsr _calculate_speed
+
+	plp
+
+	RESTORE_BANK
+	rts
+.endproc
+
+
+;..............
+; zsm_getrate :
+;============================================================================
+; Arguments: .X = priority
+; Returns: .A .Y (lo hi) of tick rate
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Returns the current tick rate of the song.
+.proc zsm_getrate: near
+	PRESERVE_BANK_CLOBBER_A_P
+	lda tick_rate_l,x
+	ldy tick_rate_h,x
+
+	pha
+	RESTORE_BANK
+	pla
+	rts
+.endproc
+
+
+;..............
+; zsm_setloop :
+;============================================================================
+; Arguments: .X = priority, .C = boolean
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the priority to loop if carry is set, if clear, disables looping
+.proc zsm_setloop: near
+	php
+	PRESERVE_BANK_CLOBBER_A_P
+	lda #$80
+	plp
+	bcs :+
+	lda #$00
+	sta loop_enable,x
+
+	RESTORE_BANK
+	rts
+.endproc
+
+;............
+; _opmatten :
+;============================================================================
+; Arguments: .X = priority, .A = value, .Y = channel
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Sets the OPM attenuation value of a voice/prio.  $00 = full volume, $3F = muted
+.proc _opmatten: near
+	cmp #$3f
+	bcc :+
+	lda #$7f
+	sta VAL
+	bra bounds_checked
+:	sta V1
+	lsr
+	sta VAL
+	lda #$00
+V1 = * - 1
+	sec
+	sbc VAL
+	sta VAL
+
+bounds_checked:
+	stx PRI
+
+	lda times_8,x
+	adc #<opm_atten_shadow
+	sta OAS
+	lda #>opm_atten_shadow
+	adc #0
+	sta OAS+1
+
+	lda opm_priority,y
+	cmp #$00
+PRI = * - 1
+	bne :+
+	ldx #$00
+VAL = * - 1
+
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0a
+	sta X16::Reg::ROMBank
+
+	tya
+	phy
+	jsr ym_setatten
+	ply 
+
+	pla
+	sta X16::Reg::ROMBank
+
+:	lda VAL
+	sta opm_atten_shadow,y
+OAS = * -2
+
+	rts
+
+.endproc
+
+;...............
+; zsm_opmatten :
+;============================================================================
+; Arguments: .X = priority, .A = value, .Y = channel
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the OPM attenuation value of a channel/prio.  $00 = full volume, $3F = muted
+.proc zsm_opmatten: near
+	php
+	pha
+	PRESERVE_BANK_CLOBBER_A_P
+	pla
+
+	sei
+	jsr _opmatten
+end:
+	plp
+	RESTORE_BANK
+	rts	
+.endproc
+
+;............
+; _psgatten :
+;============================================================================
+; Arguments: .X = priority, .A = value, .Y = channel
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Sets the PSG attenuation value of a channel/prio.  $00 = full volume, $3F = muted
+.proc _psgatten: near
+	cmp #$3f
+	bcc :+
+	lda #$3f
+:	sta VAL
+	stx PRI
+
+	lda times_16,x
+	clc
+	adc #<vera_psg_atten_shadow
+	sta PAS
+	lda #>vera_psg_atten_shadow
+	adc #0
+	sta PAS+1
+
+	lda vera_psg_priority,y
+	cmp PRI
+PRI = * - 1
+	bne :+
+	ldx $00
+VAL = * - 1
+
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0a
+	sta X16::Reg::ROMBank
+
+	tya
+	phy
+	jsr psg_setatten
+	ply
+
+	pla
+	sta X16::Reg::ROMBank
+
+:	lda VAL
+	sta vera_psg_atten_shadow,y
+PAS = *-2
+	rts
+.endproc
+
+;...............
+; zsm_psgatten :
+;============================================================================
+; Arguments: .X = priority, .A = value, .Y = channel
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the PSG attenuation value of a channel/prio.  $00 = full volume, $3F = muted
+.proc zsm_psgatten: near
+	php
+	pha
+	PRESERVE_BANK_CLOBBER_A_P
+	pla
+
+	sei
+	jsr _psgatten
+end:
+	plp
+	RESTORE_BANK
+	rts	
+.endproc
+
+;............
+; _pcmatten :
+;============================================================================
+; Arguments: .X = priority, .A = value
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Sets the PCM attenuation value of a song.  $00 = full volume, $3F = muted
+.proc _pcmatten: near
+	cmp #$3f
+	bcc :+
+	lda #$3f
+:	lsr
+	lsr
+	sta pcm_atten_shadow,x
+	cpx pcm_prio
+	bne end
+
+	lda pcm_ctrl_shadow,x
+	and $0f
+	sec
+	sbc pcm_atten_shadow,x
+
+	sta NV
+	lda Vera::Reg::AudioCtrl
+	and #$30
+	ora #$0f
+NV = * -1
+	sta Vera::Reg::AudioCtrl
+end:
+	rts
+.endproc
+
+;...............
+; zsm_pcmatten :
+;============================================================================
+; Arguments: .X = priority, .A = value
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the PCM attenuation value of a song.  $00 = full volume, $3F = muted
+.proc zsm_pcmatten: near
+	php
+	pha
+	PRESERVE_BANK_CLOBBER_A_P
+	pla
+
+	sei
+	jsr _pcmatten
+end:
+	plp
+	RESTORE_BANK
+	rts	
+.endproc
+
 ;...............
 ; zsm_setatten :
 ;============================================================================
-; Arguments: .X = priority, A. = value
+; Arguments: .X = priority, .A = value
 ; Returns: (none)
 ; Preserves: (none)
 ; Allowed in interrupt handler: no
@@ -1611,100 +2007,38 @@ voice:
 	; psg steps are 0.5dB
 	; pcm steps average 1.2dB but for simplicity we're treating them as 2dB
 	; opm steps are 0.75dB
-	cmp #$40
-	bcc :+
-	lda #$3f
 	sta val
-	lda #$7f
-	sta valopm
-	bra bounds_checked
-:	sta val
-	lsr
-	sta valopm
-	lda val
-	sec
-	sbc valopm
-	sta valopm
-
-bounds_checked:
 	stx prio
 
 	PRESERVE_BANK_CLOBBER_A_P
-	lda X16::Reg::ROMBank
-	pha
-	lda #$0a
-	sta X16::Reg::ROMBank
-
-	lda times_16,x
-	clc
-	adc #<vera_psg_atten_shadow
-	sta PAS
-	lda #>vera_psg_atten_shadow
-	adc #0
-	sta PAS+1
-
-	lda times_8,x
-	adc #<opm_atten_shadow
-	sta OAS
-	lda #>opm_atten_shadow
-	adc #0
-	sta OAS+1
 
 	php ; protect critical section
 	sei
 
 ; PCM
 	lda val
-	lsr
-	lsr
-	sta pcm_atten_shadow,x
-	cpx pcm_prio
-	bne dopsg
-	sta PA
-	lda pcm_ctrl_shadow,x
-	and #$0f
-	sec
-	sbc #$00
-PA = *-1
-	bpl :+
-	lda #0
-:	sta PA
-	lda Vera::Reg::AudioCtrl
-	and #$30
-	ora PA
-	sta Vera::Reg::AudioCtrl
+	jsr _pcmatten
 
 dopsg:
 	ldy #0
 psgloop:
-	lda vera_psg_priority,y
-	cmp prio
-	bne :+
-	ldx val
-	tya
-	phy
-	jsr psg_setatten
-	ply 
-:	lda val
-	sta vera_psg_atten_shadow,y
-PAS = *-2
+
+	ldx prio
+	lda val
+	jsr _psgatten
+
 	iny
 	cpy #16
 	bne psgloop
 
 	ldy #0
 opmloop:
-	lda opm_priority,y
-	cmp prio
-	bne :+
-	ldx valopm
-	tya
-	phy
-	jsr ym_setatten
-	ply 
-:	lda valopm
-	sta opm_atten_shadow,y
-OAS = * -2
+
+	ldx prio
+	lda val
+
+	jsr _opmatten
+
 	iny
 	cpy #8
 	bne opmloop
@@ -1712,15 +2046,11 @@ OAS = * -2
 	plp
 
 exit:
-	pla
-	sta X16::Reg::ROMBank
 	RESTORE_BANK
 	rts
 prio:
 	.byte 0
 val:
-	.byte 0
-valopm:
 	.byte 0
 .endproc
 
@@ -2263,6 +2593,144 @@ done:
 	rts
 .endproc
 
+;..............
+; zsm_loadpcm :
+;============================================================================
+; Arguments: .X = priority, .A .Y (lo hi) load address, $00 = load bank
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; For a streaming prio, loads the PCM data into RAM
+.proc zsm_loadpcm: near
+	sta AL
+	sty AH
+	lda X16::Reg::RAMBank
+	sta BK
+	PRESERVE_BANK_CLOBBER_A_P
+
+	tya
+	sta pcm_table_h,x
+	lda AL
+	sta pcm_table_l,x
+	lda BK
+	sta pcm_table_bank,x
+
+	; ensure not playing
+	lda prio_active,x
+	jne end
+
+	; ensure playable
+	lda prio_playable,x
+	jeq end
+
+	; ensure streaming mode
+	lda streaming_mode,x
+	jeq end
+
+	; ensure streaming not finished
+	lda streaming_finished,x
+	jne end
+
+	stx PRI
+
+	; seek to location containing PCM data offset
+	lda streaming_lfn_sa,x
+	sta seekpoint+1
+	lda #6
+	sta seekpoint+2
+	stz seekpoint+3
+	stz seekpoint+4
+
+	jsr _seek
+	jcs error
+
+	ldy PRI
+	ldx streaming_lfn_sa,y
+	jsr X16::Kernal::CHKIN
+
+	; seek to PCM data offset itself
+	jsr X16::Kernal::BASIN
+	sta seekpoint+2
+	jsr X16::Kernal::BASIN
+	sta seekpoint+3
+	jsr X16::Kernal::BASIN
+	sta seekpoint+4
+
+	ldx PRI
+	jsr _seek
+	bcs error
+
+	ldy PRI
+	ldx streaming_lfn_sa,y
+	jsr X16::Kernal::CHKIN
+
+	lda #$00
+BK = * - 1
+	sta X16::Reg::RAMBank
+loadloop:
+	ldx #$00
+AL = * - 1
+	ldy #$00
+AH = * - 1
+	lda #$00
+	jsr X16::Kernal::MACPTR
+	bcs done
+
+	stx CNTL
+	sty CNTH
+	txa
+	adc AL
+	sta AL
+	tya
+	adc AH
+	cmp #$c0
+	bcc :+
+	sbc #$20
+:	sta AH
+
+	lda #$00
+CNTL = * - 1
+	ora #$00
+CNTH = * - 1
+	bne loadloop
+
+done:
+	jsr X16::Kernal::CLRCHN
+	lda X16::Reg::RAMBank
+	sta BK
+
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+
+	ldx PRI
+	lda #$80
+	sta pcm_table_exists,x
+
+	RESTORE_BANK
+	jsr zsm_rewind
+	lda BK
+	sta X16::Reg::RAMBank
+	lda AL
+	ldy AH
+	clc
+	rts
+end:
+	RESTORE_BANK
+	rts
+error:
+	ldx #$00
+PRI = * - 1
+	lda #$80
+	sta streaming_finished,x
+	sta recheck_priorities
+	stz prio_playable,x
+	sec	
+	rts
+.endproc
+
+
 ;..................
 ; _open_and_parse :
 ;============================================================================
@@ -2478,13 +2946,42 @@ FP = *-2
 	lda streaming_loop_point_h,x
 	sta seekpoint+4
 
+	jsr _seek
+	bcs error
+
+	ldx prio
+	clc
+	rts
+error:
+	ldx prio
+	lda #$80
+	sta streaming_finished,x
+	sta recheck_priorities
+	stz prio_playable,x
+	sec	
+	rts
+prio:
+	.byte 0
+.endproc
+
+;........
+; _seek :
+;============================================================================
+; Arguments: .X = priority
+; Returns: .C set for error
+; Preserves: (none
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc _seek: near
+	stx PRI
 	lda #6
 	ldx #<seekpoint
 	ldy #>seekpoint
 
 	jsr X16::Kernal::SETNAM
 
-	ldx prio
+	ldx #$00
+PRI = * - 1
 	lda streaming_dev,x
 	tax
 	lda #15
@@ -2504,10 +3001,15 @@ FP = *-2
 	beq errord
 	cmp #'0'
 	bne error
+eat:
+	jsr X16::Kernal::BASIN
+	jsr X16::Kernal::READST
+	and #$40
+	beq eat
+
 	jsr X16::Kernal::CLRCHN
 	lda #15
 	jsr X16::Kernal::CLOSE
-	ldx prio
 	clc
 	rts
 errord:
@@ -2516,22 +3018,10 @@ errord:
 errorp:
 	ply
 error:
-	jsr X16::Kernal::CLRCHN
-	lda #15
-	jsr X16::Kernal::CLOSE
-	ldx prio
-	lda #$80
-	sta streaming_finished,x
-	sta recheck_priorities
-	stz prio_playable,x
-	sec	
+	jsr eat
+	sec
 	rts
-prio:
-	.byte 0
-seekpoint:
-	.byte 'P', $00, $00, $00, $00, $00
 .endproc
-
 .endif
 
 ;.............
@@ -2825,6 +3315,8 @@ prio:
 	.byte 0
 .endproc
 
+seekpoint:
+	.byte 'P', $00, $00, $00, $00, $00
 
 .ifdef ZSMKIT_ENABLE_STREAMING
 ringbuffer_start_page:
