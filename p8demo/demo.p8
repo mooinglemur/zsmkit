@@ -10,12 +10,24 @@ main $0830 {
 	%asmbinary "zsmkit-0830.bin"
 
 	const ubyte zsmkit_bank = 1
+	bool loopchanged = false
+	uword loop_number = 0
 
 	sub start() {
 		txt.print("zsmkit demo program (drive 8)!\n")
 
 		zsmkit.zsm_init_engine(zsmkit_bank)
 		play_music()
+	}
+
+	asmsub cb(ubyte prio @X, ubyte type @Y, ubyte arg @A) {
+		%asm {{
+			cpy #1
+			bne _endcb
+			inc p8_loopchanged
+_endcb:
+			rts
+		}}
 	}
 
 	sub play_music() {
@@ -37,6 +49,7 @@ main $0830 {
 		txt.nl()
 
 		zsmkit.zsm_play(0)
+		zsmkit.zsm_setcb(0, &cb)
 
 		bool paused = false
 		uword oldjoy = $ffff
@@ -58,6 +71,14 @@ main $0830 {
 			oldjoy = newjoy
 
 			sys.waitvsync()
+			if (loopchanged) {
+				txt.nl()
+				loop_number += 1
+				loopchanged = false
+				txt.print(iso:"LOOP NUMBER: ")
+				txt.print_uw(loop_number)
+				txt.nl()
+			}
 			if (not paused) {
 				txt.print(".")
 			}

@@ -1376,10 +1376,10 @@ prio:
 ;
 ; processes the callback
 .proc _callback: near
+	phx
 	pha
 	lda callback_enabled,x
 	beq nocb
-	phx
 	lda callback_addr_l,x
 	sta CBL
 	lda callback_addr_h,x
@@ -1387,16 +1387,17 @@ prio:
 	lda callback_bank,x
 	sta X16::Reg::RAMBank
 	pla
+
 	jsr $ffff
 CBL = * - 2
 CBH = * - 1
 	lda zsmkit_bank
 	sta X16::Reg::RAMBank
 	plx
-end:
 	rts
 nocb:
 	pla
+	plx
 	rts
 .endproc
 
