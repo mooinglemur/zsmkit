@@ -105,6 +105,7 @@ prio_playable:          .res NUM_PRIORITIES
 ; Callback is called whenever the song ends or loops
 callback_addr_l:        .res NUM_PRIORITIES
 callback_addr_h:        .res NUM_PRIORITIES
+callback_bank:          .res NUM_PRIORITIES
 callback_enabled:       .res NUM_PRIORITIES
 
 .ifdef ZSMKIT_ENABLE_STREAMING
@@ -1660,6 +1661,8 @@ voice:
 ;
 .proc zsm_setcb: near
 	pha
+	lda X16::Reg::RAMBank
+	sta BK
 	PRESERVE_BANK_CLOBBER_A_P
 	pla
 
@@ -1668,6 +1671,10 @@ voice:
 	sta callback_addr_l,x
 	tya
 	sta callback_addr_h,x
+
+	lda #$00
+BK = * - 1
+	sta callback_bank,x
 
 	lda #$80
 	sta callback_enabled,x
@@ -2091,9 +2098,14 @@ memory:
 	lda zsm_start_h,x
 	sta zsm_ptr_h,x
 	lda zsm_start_bank,x
-	sta zsm_ptr_bank,x
-	
+	sta zsm_ptr_bank,x	
 cont:
+	stz delay_f,x
+	stz delay_l,x
+	stz delay_h,x
+
+	stz loop_number_h,x
+	stz loop_number_l,x
 	RESTORE_BANK
 	rts
 prio:
@@ -2839,6 +2851,9 @@ noerr2:
 	stz delay_l,x
 	stz delay_h,x
 
+	stz loop_number_h,x
+	stz loop_number_l,x
+
 	stz ringbuffer_start_l,x
 	stz ringbuffer_end_l,x
 	lda ringbuffer_start_page,x
@@ -2852,6 +2867,13 @@ noerr2:
 	cmp #1
 	stz loop_enable,x
 	ror loop_enable,x
+
+	; if loop point is $000000, set it to $000010
+	; just in case it is manually turned on
+	bne :+
+	lda #$10
+	sta streaming_loop_point_l,x
+:
 
 	lda #$80
 	sta streaming_mode,x
@@ -3148,6 +3170,21 @@ noerr1:
 	stz loop_enable,x
 	ror loop_enable,x
 
+	; if loop point is $000000, set it to $000010
+	; just in case it is manually turned on
+	bne has_loop
+	lda #$10
+	adc zsm_loop_l,x
+	sta zsm_loop_l,x
+	lda zsm_loop_h,x
+	adc #0
+	cmp #$c0
+	bcc :+
+	sbc #$20
+	inc zsm_loop_bank,x
+:	sta zsm_loop_h,x
+has_loop:
+
 	stz pcm_table_exists,x
 	lda buff+8
 	ora buff+7
@@ -3229,7 +3266,10 @@ nopcm:
 	ldx prio
 	stz delay_f,x
 	stz delay_l,x
-	stz delay_h,x	
+	stz delay_h,x
+
+	stz loop_number_h,x
+	stz loop_number_l,x
 
 .ifdef ZSMKIT_ENABLE_STREAMING
 	stz streaming_mode,x

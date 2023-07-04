@@ -115,6 +115,14 @@ Whenever this method is used to play a song, `zsm_fill_buffers` must be called i
 See `zsm_setlfs` for LFN/device/SA defaults that are used by the engine.
 
 ---
+#### `zsm_loadpcm`
+```
+Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
+Outputs: .A .Y = next memory location after end of load, $00 = RAM bank
+```
+For streamed ZSM files that have PCM data, this routine can be used to load the PCM data into memory at the specified memory location. This should be done immediately after calling `zsm_setfile` and before `zsm_play`.
+
+---
 
 #### `zsm_close`
 ```
@@ -182,14 +190,117 @@ Priority 3: lfn/sa 14, device 8
 
 ---
 
+#### `zsm_setcb`
+```
+Inputs: .X = priority, .A .Y = pointer to callback, $00 = RAM bank
+```
+Sets up a callback address for ZSMKit to `jsr` into.  The callback is triggered whenever a song loops or ends on its own.
+
+Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
+
+In the future it is planned that events embedded in ZSMs will also trigger this callback. It can be used to synchronize your program's logic to musical events.
+
+---
+#### `zsm_clearcb`
+```
+Inputs: .X = priority
+```
+Clears the callback assigned to the priority.
+
+Note: The callback settings for a priority are not cleared if the priority switches songs. If you have run `zsm_setcb` on a priority, it persists until `zsm_clearcb` (or `zsm_init_engine`) is called.
+
+---
+
+#### `zsm_getstate`
+```
+Inputs: .X = priority
+Outputs: .C = playing, Z = not playable, .A .Y = (lo hi) loop counter
+```
+Returns the playback state of a priority.
+
+If the priority is currently playing, carry will be set.
+
+If the priority is in an unplayable state, the Z flag will be set.
+
+The loop counter will indicate the number of times the song has looped.
+
+---
+
+#### `zsm_setrate`
+```
+Inputs: .X = priority, .A .Y = (lo hi) new tick rate
+Outputs: none
+```
+Sets a new tick rate for the ZSM in this priority.
+
+ZSMKit expects to be run at approximately 60Hz. If a ZSM file contains PCM events, it's critical that ZSMKit's tick is run at approximately 60 times a second.
+
+ZSM files have a tick rate which usually matches, at 60 Hz, but this isn't always the case.  ZSMKit will scale the tempo based on the ratio between the ZSM's tick rate and 60 Hz. `zsm_setrate` can be used to override the value in the ZSM. It's mainly useful for changing the tempo of a song.
+
+---
+
+
+#### `zsm_getrate`
+```
+Inputs: .X = priority
+Outputs: A .Y = (lo hi) tick rate
+```
+Returns the value of the tick rate for the ZSM in this priority.
+
+---
+
+
+#### `zsm_setloop`
+```
+Inputs: .X = priority, .C = whether to loop
+Outputs: none
+```
+If carry is set, enable the looping behaivor. If carry is clear, disable looping.
+
+By default, the ZSM file indicates whether it is meant to be looped, and will specify a loop point.
+
+This routine can be used to override this behavior.
+
+---
+
+#### `zsm_opmatten`
+```
+Inputs: .X = priority, .Y = channel, .A = value
+Outputs: none
+```
+Changes the volume of an individual OPM channel for a priority slot by setting an attenuation value. A value of $00 implies no attenuation (full volume) and a value of $3F is full mute.
+
+---
+
+
+#### `zsm_psgatten`
+```
+Inputs: .X = priority, .Y = channel, .A = value
+Outputs: none
+```
+Changes the volume of an individual PSG channel for a priority slot by setting an attenuation value. A value of $00 implies no attenuation (full volume) and a value of $3F is full mute.
+
+---
+
+#### `zsm_pcmatten`
+```
+Inputs: .X = priority, .A = value
+Outputs: none
+```
+Changes the volume of the PCM channel for a priority slot by setting an attenuation value. A value of $00 implies no attenuation (full volume) and a value of $3F is full mute.
+
+Even though the PCM channel's volume has a 4-bit resolution, the attenuation value is scaled so that attentuation values affect all three outputs in a similar way.
+
+---
+
+
 ### API calls for main part of the program (ZCM)
 
 ZCM files are PCM data files with an 8-byte header indicating their bit depth, number of channels, and length. In order for ZSMKit to play them, they must be loaded into memory first, and their location in memory given to ZSMKit via the `zcm_setmem` routine. ZSMKit can track up to 32 ZCMs in memory, slots 0-31, though it's likely you'd exhaust high RAM before having that many loaded at once.
 
----
 #### `zcm_setmem`
 ```
-Inputs: .X = slot, .A .Y = memory loction (lo hi), $00 = RAM bank
+Inputs: .X = slot, .A .Y = memory location (lo hi), $00 = RAM bank
 ```
 Tells ZSMKit where to find a ZCM (PCM sample) image.  This image has an 8-byte header followed by raw PCM
 

@@ -15,7 +15,7 @@ zsmkit {
 	romsub $0851 = zsm_setatten(ubyte prio @X, ubyte value @A) clobbers(A, X, Y)
     romsub $0854 = zsm_setcb(ubyte prio @X, uword func_ptr @AY) clobbers(A, X, Y)
     romsub $0857 = zsm_clearcb(ubyte prio @X) clobbers(A, X, Y)
-    romsub $085A = zsm_getstate(ubyte prio @X) clobbers() -> bool @Pc, uword @AY
+    romsub $085A = zsm_getstate(ubyte prio @X) clobbers(X) -> bool @Pc, bool @Pz, uword @AY
     romsub $085D = zsm_setrate(ubyte prio @X, uword rate @AY) clobbers(A, X, Y)
     romsub $0860 = zsm_getrate(ubyte prio @X) clobbers() -> uword @AY
     romsub $0863 = zsm_setloop(ubyte prio @X, bool loop @Pc) clobbers(A, X, Y)
