@@ -193,11 +193,21 @@ Priority 3: lfn/sa 14, device 8
 ```
 Inputs: .X = priority, .A .Y = pointer to callback, $00 = RAM bank
 ```
-NOTE: **NOT FULLY IMPLEMENTED**
 
 Sets up a callback address for ZSMKit to `jsr` into.  The callback is triggered whenever a song loops or ends on its own.
 
-Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
+Inside the callback, the RAM bank will be set to whatever bank was active at the time `zsb_setcb` was called.  .X will be set to the priority, .Y will be set to the event type, and .A will be the parameter value.
+
+|Y|A|Meaning|
+|-|-|-|
+|$00|$00|Song has ended normally|
+|$00|$80|Song has crashed|
+|$01|LSB of loop number|Song has looped|
+|$02|any|Synchronization message from ZSM|
+
+Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen. The callback does not need to take care to preserve any registers before returning.
+
+The callback does *not* need to take care to preserve any registers before returning.
 
 In the future it is planned that events embedded in ZSMs will also trigger this callback. It can be used to synchronize your program's logic to musical events.
 

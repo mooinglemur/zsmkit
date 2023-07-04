@@ -1129,6 +1129,9 @@ plaerror:
 error:
 	ldx prio
 	stz prio_playable,x
+	ldy #$00
+	lda #$80
+	jsr _callback
 	jmp _stop_sound
 isdata:
 	cmp #$40
@@ -1150,6 +1153,9 @@ iseod:
 	lda loop_enable,x
 	bne islooped
 	stz prio_active,x
+	ldy #$00
+	; A == 0 already
+	jsr _callback
 	lda #$80
 	sta recheck_priorities
 	rts
@@ -1194,7 +1200,9 @@ islooped:
 	inc loop_number_l,x
 	bne :+
 	inc loop_number_h,x
-:
+:	ldy loop_number_l,x
+	lda #$01
+	jsr _callback
 .ifdef ZSMKIT_ENABLE_STREAMING
 	; if we're in streaming mode, we basically ignore the eod
 	; and assume there's valid ZSM data that's been fetched
@@ -1320,7 +1328,7 @@ _psg_write:
 	pha ; preserve value
 	txa ; register
 	lsr
-	lsr ; now it's voice
+	lsr ; now it's the voice number
 	tay
 	lda vera_psg_priority,y
 	cmp prio
@@ -1355,6 +1363,41 @@ _ym_write:
 
 prio:
 	.byte 0
+.endproc
+
+;..............
+; _callback   :
+;============================================================================
+; Arguments: .X = prio, .Y = type, .A = value
+; Returns: (none)
+; Preserves: .X
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; processes the callback
+.proc _callback: near
+	pha
+	lda callback_enabled,x
+	beq nocb
+	phx
+	lda callback_addr_l,x
+	sta CBL
+	lda callback_addr_h,x
+	sta CBH
+	lda callback_bank,x
+	sta X16::Reg::RAMBank
+	pla
+	jsr $ffff
+CBL = * - 2
+CBH = * - 1
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
+	plx
+end:
+	rts
+nocb:
+	pla
+	rts
 .endproc
 
 ;............
@@ -2497,25 +2540,20 @@ check_if_loopable:
 check_enough:
 	jsr X16::Kernal::CLRCHN
 	ldx prio
-	lda ringbuffer_start_h,x
-	cmp ringbuffer_end_h,x
-	jeq loop ; get more if start and end are on the same page
+	sec
+	lda ringbuffer_end_h,x
+	sbc ringbuffer_start_h,x
+	bcs :+
+	adc #>RINGBUFFER_SIZE
+:	cmp #$02
+	jcc loop ; get more if start and end are not at least two pages apart
 next:
 	dex
-	bmi :+
-	jmp loop
-:
+	jpl loop
 	RESTORE_BANK
 	rts
 error:
-	php
-	sei
-
-	ldx prio
-	stz prio_playable,x
-	jsr _stop_sound
-	
-	plp
+	; error is the same as finish
 finish:
 	jsr X16::Kernal::CLRCHN
 	ldx prio
@@ -2979,8 +3017,6 @@ error:
 	ldx prio
 	lda #$80
 	sta streaming_finished,x
-	sta recheck_priorities
-	stz prio_playable,x
 	sec	
 	rts
 prio:
