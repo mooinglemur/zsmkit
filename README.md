@@ -13,6 +13,7 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 * Looping
 * Pausing and resuming playback
 * ZSM tick rates other than 60 are normalized to 60
+* Ability to alter tick rate to change tempo
 * ZCM playback support
 
 It also has these features that ZSound currently lacks:
@@ -25,8 +26,6 @@ It also has these features that ZSound currently lacks:
 
 These features are planned but not yet implemented
 * Callback from library into the application for loop/end notification
-* Ability to dynamically alter the tempo
-* Ability to fetch current song state
 * Feature to suspend specific channels for all priorities, allowing the channel/voice to be used outside of ZSMKit, such as simple in-game sound effects, for instance.
 
 
@@ -108,7 +107,7 @@ Inputs: .X = priority, .A .Y = pointer (lo hi) in low RAM to null-terminated fil
 ```
 This is an alternate song-loading method. It sets up a priority slot to stream a ZSM file from disk (SD card). The file is opened and stays open for as long as the song is playable (i.e. until `zsm_close` is called, or another song is loaded into the priority).  Instead of holding the entire ZSM in memory, it is streamed from the file in small chunks and held in a small ring buffer inside the bank assigned to ZSMKit.
 
-For ZSM files that contain PCM data, the song will play without triggering the PCM events.
+For ZSM files that contain PCM data, the song will play without triggering the PCM events unless `zsm_loadpcm` is called after `zsm_setfile`.
 
 Whenever this method is used to play a song, `zsm_fill_buffers` must be called in the main part of the program in between ticks.
 
@@ -194,6 +193,8 @@ Priority 3: lfn/sa 14, device 8
 ```
 Inputs: .X = priority, .A .Y = pointer to callback, $00 = RAM bank
 ```
+NOTE: **NOT FULLY IMPLEMENTED**
+
 Sets up a callback address for ZSMKit to `jsr` into.  The callback is triggered whenever a song loops or ends on its own.
 
 Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.

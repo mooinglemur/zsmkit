@@ -2687,6 +2687,7 @@ AL = * - 1
 	ldy #$00
 AH = * - 1
 	lda #$00
+	clc
 	jsr X16::Kernal::MACPTR
 	bcs done
 
