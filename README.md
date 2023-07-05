@@ -209,8 +209,6 @@ Since this callback happens in the interrupt handler, it is important that your 
 
 The callback does *not* need to take care to preserve any registers before returning.
 
-In the future it is planned that events embedded in ZSMs will also trigger this callback. It can be used to synchronize your program's logic to musical events.
-
 ---
 #### `zsm_clearcb`
 ```

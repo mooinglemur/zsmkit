@@ -1164,7 +1164,13 @@ isext:
 	bcs error
 	jsr getzsmbyte
 	cmp #$40
-	bcc ispcm	
+	jcc ispcm
+	cmp #$80
+	bcc ischip
+	cmp #$c0
+	bcc issync
+	; channel 3, future use, ignore
+ischip: ; external chip, ignore
 	and #$3f
 	; eat the data bytes, up to 63 of them
 	tay
@@ -1220,11 +1226,35 @@ islooped:
 	sta zsm_ptr_h,x
 	sta PTR+1
 	jmp note_loop
+issync:
+	and #$3f
+	pha ; save count
+	jsr advanceptr
+	bcs plaerror2
+	jsr getzsmbyte
+	cmp #$00
+	beq isgensync
+	jsr advanceptr
+	bcs plaerror2
+endsync:
+	pla ; restore count
+	dec
+	dec
+	bne issync
+	jmp nextnote
+isgensync:
+	jsr advanceptr
+	bcs plaerror2
+	jsr getzsmbyte
+	ldx prio
+	ldy #$02 ; sync message
+	jsr _callback
+	bra endsync
 ispcm:
 	ldx prio
 	pha ; save count
 	jsr advanceptr
-	bcs error2
+	bcs plaerror2
 	jsr getzsmbyte
 	beq ispcmctrl
 	cmp #1
@@ -1240,6 +1270,10 @@ endpcm:
 	dec
 	bne ispcm
 	jmp nextnote
+plaerror2:
+	pla
+error2:
+	jmp error
 ispcmctrl:
 	jsr advanceptr
 	bcs error2
@@ -1274,8 +1308,6 @@ ispcmrate:
 	bne endpcm
 	sta Vera::Reg::AudioRate
 	bra endpcm
-error2:
-	jmp error
 
 getzsmbyte:
 	lda zsm_ptr_bank,x

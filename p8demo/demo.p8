@@ -11,6 +11,7 @@ main $0830 {
 
 	const ubyte zsmkit_bank = 1
 	bool loopchanged = false
+	bool beat = false
 	uword loop_number = 0
 
 	sub start() {
@@ -23,9 +24,15 @@ main $0830 {
 	asmsub cb(ubyte prio @X, ubyte type @Y, ubyte arg @A) {
 		%asm {{
 			cpy #1
-			bne _endcb
+			beq _loop
+			cpy #2
+			beq _sync
+			rts
+_loop:
 			inc p8_loopchanged
-_endcb:
+			rts
+_sync:
+			inc p8_beat
 			rts
 		}}
 	}
@@ -53,6 +60,7 @@ _endcb:
 
 		bool paused = false
 		uword oldjoy = $ffff
+		ubyte intensity = 0
 
 		repeat {
 			uword newjoy = cx16.joystick_get2(0)
@@ -79,11 +87,19 @@ _endcb:
 				txt.print_uw(loop_number)
 				txt.nl()
 			}
-			if (not paused) {
+			zsmkit.zsm_tick()
+			if (beat) {
+				intensity = 16
+				beat = false
+			} else if (not paused) {
 				txt.print(".")
 			}
-			zsmkit.zsm_tick()
+			if (intensity > 0) {
+				intensity -= 1
+				palette.set_color(0, (intensity >> 1) * $111)
+			}
 			zsmkit.zsm_fill_buffers()
+
 		}
 	}
 }
