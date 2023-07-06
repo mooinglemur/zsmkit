@@ -20,12 +20,15 @@ It also has these features that ZSound currently lacks:
 
 * Playback of ZSM files streamed from open files on SD card
 * Four playback slots (0-3)
-* Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback.
-* "Master volume" control for each playback slot.
+* Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback
+* "Master volume" control for each playback slot
+    * Individual voices' master volumes can also be overridden
 * ZSM files with PCM tracks are now handled and their PCM data is played back
+* ZSM synchronization messages are passed into an optional callback routine
+* Uses YM chip detection routine in ROM >= R44 and redirects LFO reset writes to register $09 if the chip type is OPP. (code has been written but the logic is currently disabled)
 
 These features are planned but not yet implemented
-* Callback from library into the application for loop/end notification
+
 * Feature to suspend specific channels for all priorities, allowing the channel/voice to be used outside of ZSMKit, such as simple in-game sound effects, for instance.
 
 
@@ -242,7 +245,7 @@ Outputs: none
 ```
 Sets a new tick rate for the ZSM in this priority.
 
-ZSMKit expects to be run at approximately 60Hz. If a ZSM file contains PCM events, it's critical that ZSMKit's tick is run at approximately 60 times a second.
+Note: ZSMKit expects to have its tick subroutine called at approximately 60Hz. If a ZSM file contains PCM events, it's critical that ZSMKit's tick is run at approximately 60 times a second.
 
 ZSM files have a tick rate which usually matches, at 60 Hz, but this isn't always the case.  ZSMKit will scale the tempo based on the ratio between the ZSM's tick rate and 60 Hz. `zsm_setrate` can be used to override the value in the ZSM. It's mainly useful for changing the tempo of a song.
 

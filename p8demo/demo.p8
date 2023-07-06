@@ -79,6 +79,7 @@ _sync:
 			oldjoy = newjoy
 
 			sys.waitvsync()
+			zsmkit.zsm_tick()
 			if (loopchanged) {
 				txt.nl()
 				loop_number += 1
@@ -86,8 +87,8 @@ _sync:
 				txt.print(iso:"LOOP NUMBER: ")
 				txt.print_uw(loop_number)
 				txt.nl()
+				zsmkit.zsm_setrate(0, 60+(loop_number << 2))
 			}
-			zsmkit.zsm_tick()
 			if (beat) {
 				intensity = 16
 				beat = false

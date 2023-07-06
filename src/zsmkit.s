@@ -260,6 +260,9 @@ vera_psg_restore_shadow: .res 16
 ; since it's likely a song is no longer playing
 recheck_priorities:      .res 1
 
+; chip type (from X16 audio library)
+ym_chip_type:            .res 1
+
 _ZSM_BANK_END := *
 
 
@@ -282,7 +285,13 @@ _ZSM_BANK_END := *
 	sei
 
 	sta zsmkit_bank
-	JSRFAR audio_init, $0A
+
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0A
+	sta X16::Reg::ROMBank
+
+	jsr audio_init
 	PRESERVE_BANK_CLOBBER_A_P
 
 	; This will overshoot the allocated part of the ZSM
@@ -319,6 +328,14 @@ prioloop:
 	dex
 	bpl prioloop
 .endif
+
+	; wait until chip detection is in current ROM
+;	jsr ym_get_chip_type
+	lda #$00
+	sta ym_chip_type
+
+	pla
+	sta X16::Reg::ROMBank
 
 	RESTORE_BANK
 	plp
@@ -1188,9 +1205,15 @@ opmloop:
 	bcs error
 	jsr getzsmbyte
 	stx prio
-	pha
+	cmp #$01 ; TEST register
+	bne :+
+	ldx ym_chip_type
+	cpx #$01 ; OPP?
+	bne :+
+	lda #$09 ; TEST register on OPP
+:	pha
 	jsr advanceptr
-	bcs plaerror
+	jcs plaerror
 	jsr getzsmbyte
 	plx
 	sta opm_shadow,x ; operand is overwritten at sub entry
@@ -1206,8 +1229,8 @@ islooped:
 	inc loop_number_l,x
 	bne :+
 	inc loop_number_h,x
-:	ldy loop_number_l,x
-	lda #$01
+:	lda loop_number_l,x
+	ldy #$01
 	jsr _callback
 .ifdef ZSMKIT_ENABLE_STREAMING
 	; if we're in streaming mode, we basically ignore the eod
@@ -1374,12 +1397,15 @@ _ym_write:
 	pha ; preserve value
 	cpx #$08
 	beq @key ; register 8 is key-off/key-on, and value => voice
+	cpx #$0f
+	beq @noi ; noise register belongs to whomever owns channel 7
 	cpx #$20
 	bcc @zero ; other registers < $20 are owned by prio 0
 	txa ; >= $20 the voice is the low 3 bits of the register
 @key:
 	and #$07
 	tay
+@key1:
 	lda opm_priority,y
 @cz:
 	cmp prio
@@ -1389,6 +1415,9 @@ _ym_write:
 @zero:
 	lda #0
 	bra @cz
+@noi:
+	ldy #$07
+	bra @key1
 @skip:
 	pla ; restore value
 	rts
@@ -1600,14 +1629,25 @@ opmloop:
 	clc
 	adc #>opm_shadow
 	sta OH
+	sta OH7
 
+	; restore noise enable / nfreq
+	; shadow for our prio if it's in voice 7
+	cpy #7
+	bne not7
+	lda opm_shadow+$0f
+OH7 = * - 1
+	ldx #$0f
+	jsr ym_write
+
+not7:
 	lda #$20
 	clc
 	adc voice
 	tax
 shopmloop:
 	lda opm_shadow,x
-OH = *-1
+OH = * - 1
 	jsr ym_write
 	txa
 	clc
@@ -1947,7 +1987,7 @@ end:
 ;============================================================================
 ; Arguments: .X = priority, .A = value, .Y = channel
 ; Returns: (none)
-; Preserves: (none)
+; Preserves: .Y
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
 ;
@@ -1968,10 +2008,10 @@ end:
 	sta PAS+1
 
 	lda vera_psg_priority,y
-	cmp PRI
+	cmp #$00
 PRI = * - 1
 	bne :+
-	ldx $00
+	ldx #$00
 VAL = * - 1
 
 	lda X16::Reg::ROMBank
