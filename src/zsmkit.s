@@ -213,6 +213,12 @@ pcm_table_bank:         .res NUM_PRIORITIES
 pcm_table_l:            .res NUM_PRIORITIES
 pcm_table_h:            .res NUM_PRIORITIES
 
+pcm_inst_max:           .res NUM_PRIORITIES
+
+pcm_data_bank:          .res NUM_PRIORITIES
+pcm_data_l:             .res NUM_PRIORITIES
+pcm_data_h:             .res NUM_PRIORITIES
+
 ; The prio that currently has a PCM event going
 ; $80 means ZCM is/was playing
 ; ZCM always takes over the PCM channel
@@ -232,6 +238,16 @@ pcm_cur_h:              .res 1
 pcm_remain_l:           .res 1
 pcm_remain_m:           .res 1
 pcm_remain_h:           .res 1
+
+; Loop point
+pcm_loop_bank:          .res 1
+pcm_loop_l:             .res 1
+pcm_loop_h:             .res 1
+pcm_islooped:           .res 1
+
+pcm_loop_rem_l:         .res 1
+pcm_loop_rem_m:         .res 1
+pcm_loop_rem_h:         .res 1
 
 zcm_mem_bank:           .res NUM_ZCM_SLOTS
 zcm_mem_l:              .res NUM_ZCM_SLOTS
@@ -366,11 +382,11 @@ prioloop:
 	; preserve VERA state
 	lda Vera::Reg::Ctrl
 	sta C1
-	lda #%00000100 ; DCSEL=2
-	sta Vera::Reg::Ctrl
-	lda $9f29 ; FX Ctrl
-	; stz $9f29 - can't do this until Box16 accepts FX merge
-	sta FX1
+	;lda #%00000100 ; DCSEL=2
+	;sta Vera::Reg::Ctrl
+	;lda $9f29 ; FX Ctrl
+	; stz $9f29 - can't do this until FX is stabilized
+	;sta FX1
 	stz Vera::Reg::Ctrl
 	lda Vera::Reg::AddrL
 	sta A1
@@ -408,11 +424,11 @@ A2 = *-1
 	lda #$ff
 A1 = *-1
 	sta Vera::Reg::AddrL
-	lda #%00000100 ; DCSEL=2
-	sta Vera::Reg::Ctrl
-	lda #$ff
-FX1 = *-1
-	sta $9f29 ; FX ctrl
+;	lda #%00000100 ; DCSEL=2
+;	sta Vera::Reg::Ctrl
+;	lda #$ff
+;FX1 = *-1
+;	sta $9f29 ; FX ctrl
 	lda #$ff
 C1 = *-1
 	sta Vera::Reg::Ctrl
@@ -478,9 +494,9 @@ end:
 	; If high byte of address is zero, it's not valid
 	lda zcm_mem_h,x
 	beq end
-	sta AH
+	sta PT+1
 	lda zcm_mem_l,x
-	sta AL
+	sta PT
 
 	lda zcm_mem_bank,x
 	sta X16::Reg::RAMBank
@@ -515,10 +531,10 @@ check_sig:
 	pla ; bank
 	sta pcm_cur_bank
 
-	lda AL
+	lda PT
 	sta pcm_cur_l
 
-	lda AH
+	lda PT+1
 	sta pcm_cur_h
 
 	pla ; rate
@@ -543,29 +559,11 @@ VR = * - 1
 	sta pcm_busy
 	sta pcm_prio
 
+	stz pcm_islooped
+
 	plp ; restore interrupt mask state
 end:
 	RESTORE_BANK
-	rts
-
-get_next_byte:
-	lda $ffff
-AL = *-2
-AH = *-1
-	inc AL
-	bne gnb2
-	inc AH
-validate_pt:
-	pha
-	lda AH
-	cmp #$c0
-	bcc gnb1
-	sbc #$20
-	sta AH
-	inc X16::Reg::RAMBank
-gnb1:
-	pla
-gnb2:
 	rts
 
 .endproc
@@ -612,7 +610,10 @@ end:
 ; This routine will trigger an instrument if the PCM channel is free
 ; or is eligible to be stolen
 .proc _pcm_trigger_instrument: near
-	tay ; preserve instrument number
+	cmp pcm_inst_max,x
+	beq :+ ; ok
+	jcs error ; the last instrument known is a lower index than the one requested
+:	tay
 	lda pcm_table_exists,x
 	jeq end
 
@@ -651,57 +652,37 @@ TC = *-1
 	sta pcm_busy
 
 	lda pcm_table_l,x
-	sta PT
+	sta PTI
 	lda pcm_table_h,x
-	sta PT+1
+	sta PTI+1
 	lda pcm_table_bank,x
 	sta X16::Reg::RAMBank
-
-	ldx #0
-check_sig:
-	jsr get_next_byte
-	cmp validation,x
-	jne error ; we didn't see "PCM" where we expected it
-	inx
-	cpx #3
-	bcc check_sig
-
-check_inst_bounds:
-	sty tmp_inst
-	jsr get_next_byte
-	sta tmp_max_inst
-	cmp tmp_inst
-	jcc error ; the last instrument known is a lower index than the one requested
 
 	; multiply the offset by 16
 	tya
 	stz tmp_inst
+.repeat 4
 	asl
 	rol tmp_inst
-	asl
-	rol tmp_inst
-	asl
-	rol tmp_inst
-	asl
-	rol tmp_inst
+.endrepeat
 
 	; carry is already clear
-	adc PT
-	sta PT
+	adc PTI
+	sta PTI
 	lda tmp_inst
-	adc PT+1
-	sta PT+1
-	jsr validate_pt
+	adc PTI+1
+	sta PTI+1
+	jsr validate_pt_irq
 
 	; now we should be at the instrument definiton
 	sty tmp_inst
-	jsr get_next_byte
+	jsr get_next_byte_irq
 	cmp tmp_inst
 	jne error ; This should be the instrument definition that we asked for
 
 	; here's the geometry byte (bit depth and number of channels)
 	; apply it now
-	jsr get_next_byte
+	jsr get_next_byte_irq
 	and #$30
 	sta tmp_inst
 	lda Vera::Reg::AudioCtrl
@@ -709,9 +690,9 @@ check_inst_bounds:
 	ora tmp_inst
 	sta Vera::Reg::AudioCtrl
 
-	; slurp up the offset and length
-	ldx #6
-:	jsr get_next_byte
+	; slurp up the offset and length, features and loop point
+	ldx #10
+:	jsr get_next_byte_irq
 	pha
 	dex
 	bne :-
@@ -719,6 +700,29 @@ check_inst_bounds:
 	; switch back to the zsmkit bank so we can feed our variables
 	lda zsmkit_bank
 	sta X16::Reg::RAMBank
+
+	pla
+	sta pcm_loop_rem_h
+.repeat 3
+	asl ; x8
+.endrepeat
+	sta pcm_loop_bank
+	pla
+	sta pcm_loop_rem_m
+:	cmp #$20
+	bcc :+
+	sbc #$20
+	inc pcm_loop_bank
+	bra :-
+:	sta pcm_loop_h
+	sta pcm_loop_h
+	pla
+	sta pcm_loop_l
+	sta pcm_loop_rem_l
+
+	pla
+	and #$80
+	sta pcm_islooped
 
 	; these get fed verbatim
 	pla
@@ -746,51 +750,56 @@ check_inst_bounds:
 	pla
 	ldx pcm_prio
 	clc
-	adc pcm_table_l,x
+	adc pcm_data_l,x
 	sta pcm_cur_l
 
-	lda pcm_table_h,x
+	lda pcm_data_h,x
 	adc pcm_cur_h
-:	cmp #$c0
+	cmp #$c0
 	bcc :+
 	sbc #$20
 	inc pcm_cur_bank
-	bra :-
 :	sta pcm_cur_h
 
-	lda pcm_table_bank,x
-	; carry is clear
+	lda pcm_data_bank,x
+	clc
 	adc pcm_cur_bank
 	sta pcm_cur_bank
 
-	; now add the offset of the instrument table
-	lda tmp_max_inst
-	stz tmp_inst
-	inc
-	bne :+
-	inc tmp_inst
-:	asl
-	rol tmp_inst
-	asl
-	rol tmp_inst
-	asl
-	rol tmp_inst
-	asl
-	rol tmp_inst
+	; and now pcm_cur* and pcm_remain* are initialized
 
-	adc #4 ; instrument table preamble size
-	adc pcm_cur_l
-	sta pcm_cur_l
-	lda tmp_inst
-	adc pcm_cur_h
-:	cmp #$c0
+	; final calc of loop point
+	lda pcm_islooped,x
+	beq end
+
+	lda pcm_cur_l
+	clc
+	adc pcm_loop_l
+	sta pcm_loop_l
+	lda pcm_cur_h
+	adc pcm_loop_h
+	cmp #$c0
 	bcc :+
 	sbc #$20
-	inc pcm_cur_bank
-	bra :-
-:	sta pcm_cur_h
+	inc pcm_loop_bank
+:	sta pcm_loop_h
 
-	; and now pcm_cur* and pcm_remain* are initialized
+	lda pcm_cur_bank
+	clc
+	adc pcm_loop_bank
+	sta pcm_loop_bank
+
+	; calculate reload length after loop
+	lda pcm_remain_l
+	sec
+	sbc pcm_loop_rem_l
+	sta pcm_loop_rem_l
+	lda pcm_remain_m
+	sbc pcm_loop_rem_m
+	sta pcm_loop_rem_m
+	lda pcm_remain_h
+	sbc pcm_loop_rem_h
+	sta pcm_loop_rem_h
 end:
 	rts
 error:
@@ -799,31 +808,83 @@ error:
 	stz pcm_busy
 	rts
 
-get_next_byte:
-	lda $ffff
-PT = *-2
-	inc PT
-	bne gnb2
-	inc PT+1
-validate_pt:
-	pha
-	lda PT+1
-	cmp #$c0
-	bcc gnb1
-	sbc #$20
+tmp_inst:
+	.byte 0
+.endproc
+
+;......................
+; _finalize_pcm_table :
+;============================================================================
+; Arguments: .X = prio
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; Enter with rambank = zsmbank
+; ---------------------------------------------------------------------------
+.proc _finalize_pcm_table: near
+	stx PRI
+	lda pcm_table_l,x
+	sta PT
+	lda pcm_table_h,x
 	sta PT+1
-	inc X16::Reg::RAMBank
-gnb1:
-	pla
-gnb2:
+	lda pcm_table_bank,x
+	sta X16::Reg::RAMBank
+
+	; Check for PCM signature, get max inst
+	ldx #0
+check_sig:
+	jsr get_next_byte
+	cmp validation,x
+	bne error ; we didn't see "PCM" where we expected it
+	inx
+	cpx #3
+	bcc check_sig
+
+	jsr get_next_byte
+	ldy X16::Reg::RAMBank
+	ldx zsmkit_bank
+	stx X16::Reg::RAMBank
+
+	ldx #$ff
+PRI = * - 1
+	sta pcm_inst_max,x
+
+	tya
+	sta pcm_table_bank,x
+	sta pcm_data_bank,x
+	lda PT
+	sta pcm_table_l,x
+	lda PT+1
+	sta pcm_table_h,x
+
+	lda pcm_inst_max,x
+	stz DH
+.repeat 4
+	asl
+	asl DH
+.endrepeat
+	adc pcm_table_l,x
+	sta pcm_data_l,x
+	lda #$ff
+DH = * - 1
+	adc pcm_table_h,x
+	cmp #$c0
+	bcc :+
+	sbc #$20
+	inc pcm_data_bank,x
+:	sta pcm_data_h,x
+	lda #$80
+	sta pcm_table_exists,x
+	bra end
+error:
+	stz pcm_table_exists,x
+end:
+	lda zsmkit_bank
+	sta X16::Reg::RAMBank
 	rts
 
 validation:
 	.byte "PCM"
-tmp_inst:
-	.byte 0
-tmp_max_inst:
-	.byte 0
 .endproc
 
 ;..............
@@ -856,8 +917,9 @@ fast:
 	bra calc_bytes
 slow:
 	cpx #$ff
-	beq end ; AFLOW is clear and rate is 0, don't bother feeding	
-	lda pcmrate_slow,x
+	bne :+
+	rts ; AFLOW is clear and rate is 0, don't bother feeding	
+:	lda pcmrate_slow,x
 calc_bytes:
 	; do the << 2 base amount
 	stz tmp_count+1
@@ -878,6 +940,7 @@ no_stereo:
 	asl tmp_count
 	rol tmp_count+1
 no_16bit:
+	stz LPIT ; clear the loop checker
 	; If the fifo is completely empty, change the rate to 0 temporarily
 	; so that the FIFO can be filled without it immediately starting
 	; to drain
@@ -895,10 +958,17 @@ no_16bit:
 	bcs normal_load ; borrow clear, sufficient bytes by default
 
 	; we have fewer bytes remaining than we were going to send
-	; so the PCM blitting is done. Mark the pcm channel as available
-	stz pcm_busy
 	ldx pcm_remain_l
 	ldy pcm_remain_m
+
+	; looping sample?
+	lda pcm_islooped
+	beq not_looped
+	inc LPIT
+	bra loadit	
+not_looped:
+	; so the PCM blitting is done. Mark the pcm channel as available
+	stz pcm_busy
 	bra loadit
 normal_load:
 	; decrement remaining
@@ -918,8 +988,36 @@ normal_load:
 loadit:
 	jsr _load_fifo
 	lda #$80 ; this is self-mod to restore the rate in case we loaded while empty and temporarily set the rate to zero
-RR = *-1
+RR = *- 1
 	sta Vera::Reg::AudioRate
+	lda #$00
+LPIT = * - 1
+	beq end
+	; We looped, reset the pointers
+	lda pcm_loop_bank
+	sta pcm_cur_bank
+	lda pcm_loop_h
+	sta pcm_cur_h
+	lda pcm_loop_l
+	sta pcm_cur_l
+	lda tmp_count
+	sec
+	sbc pcm_remain_l
+	sta tmp_count
+	lda tmp_count+1
+	sbc pcm_remain_m
+	sta tmp_count+1
+	lda pcm_loop_rem_l
+	sec
+	sbc tmp_count
+	sta pcm_remain_l
+	lda pcm_loop_rem_m
+	sbc tmp_count+1
+	sta pcm_remain_m
+	lda pcm_loop_rem_h
+	sbc #$00
+	sta pcm_remain_h
+	jmp no_16bit
 end:
 	rts
 tmp_count:
@@ -1606,12 +1704,13 @@ opmloop:
 	lda opm_restore_shadow,x
 	beq opmnext
 
+	ldy voice
+	jsr _opm_fast_release
+
+	ldx voice
 	lda opm_priority,x
 	cmp #NUM_PRIORITIES
 	bcs opmnext ; this happens immediately after a voice stops but no other song is taking over
-
-	ldy voice
-	jsr _opm_fast_release
 
 	; reshadow all parameters
 	ldy voice
@@ -1674,6 +1773,11 @@ opmnext:
 psgloop:
 	lda vera_psg_restore_shadow,x
 	beq psgnext
+
+	txa
+	ldx #0
+	jsr psg_setvol
+	ldx voice
 
 	lda vera_psg_priority,x
 	cmp #NUM_PRIORITIES
@@ -2758,6 +2862,9 @@ done:
 
 	stx PRI
 
+	lda #$80
+	sta PCME ; assume PCM will exist
+
 	; seek to location containing PCM data offset
 	lda streaming_lfn_sa,x
 	sta seekpoint+1
@@ -2781,7 +2888,12 @@ done:
 	jsr X16::Kernal::BASIN
 	sta seekpoint+4
 
-	ldx PRI
+	ora seekpoint+3
+	ora seekpoint+2
+	bne :+
+	stz PCME ; no PCM section
+	bra done
+:	ldx PRI
 	jsr _seek
 	bcs error
 
@@ -2830,9 +2942,11 @@ done:
 
 	ldx PRI
 	lda #$80
-	sta pcm_table_exists,x
+PCME = * - 1
+	beq :+
+	jsr _finalize_pcm_table
 
-	RESTORE_BANK
+:	RESTORE_BANK
 	jsr zsm_rewind
 	lda BK
 	sta X16::Reg::RAMBank
@@ -3337,8 +3451,7 @@ has_loop:
 	bra :-
 :	sta pcm_table_h,x ; and we're done figuring out the PCM table location
 
-	lda #$80
-	sta pcm_table_exists,x
+	jsr _finalize_pcm_table
 nopcm:
 	; FM channel mask
 	lda buff+9
@@ -3464,6 +3577,41 @@ l2:
 prio:
 	.byte 0
 .endproc
+
+get_next_byte:
+	lda $ffff
+PT = *-2
+	inc PT
+	bne gnb2
+	inc PT+1
+validate_pt:
+	pha
+	lda PT+1
+	cmp #$c0
+	bcc gnb1
+	sbc #$20
+	sta PT+1
+	inc X16::Reg::RAMBank
+gnb1:
+	pla
+gnb2:
+	rts
+
+get_next_byte_irq:
+	lda $ffff
+PTI = *-2
+	inc PTI
+	bne gnb2
+	inc PTI+1
+validate_pt_irq:
+	pha
+	lda PTI+1
+	cmp #$c0
+	bcc gnb1
+	sbc #$20
+	sta PTI+1
+	inc X16::Reg::RAMBank
+	rts
 
 seekpoint:
 	.byte 'P', $00, $00, $00, $00, $00
