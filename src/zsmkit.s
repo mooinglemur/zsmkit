@@ -32,6 +32,11 @@
 .export zcm_play
 .export zcm_stop
 
+; exports for peeking inside from players, etc
+.export vera_psg_shadow
+.export opm_key_shadow
+.export opm_shadow
+.export pcm_busy
 
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 4
@@ -74,6 +79,9 @@ vera_psg_shadow:        .res NUM_PRIORITIES*64
 
 ; offset = (priority * 8) + (voice)
 opm_atten_shadow:       .res NUM_PRIORITIES*8
+
+; offset = (priority * 8) + (voice)
+opm_key_shadow:			.res NUM_PRIORITIES*8
 
 ; offset = (priority * 16) + (voice)
 vera_psg_atten_shadow:  .res NUM_PRIORITIES*16
@@ -1319,6 +1327,9 @@ OS = *-1
 	phy
 	jsr _ym_write
 	ply
+	cpx #$08 ; key on/off
+	beq savekey
+back2ymblock:
 	ldx prio
 	dey
 	bne opmloop
@@ -1363,6 +1374,17 @@ endsync:
 	dec
 	bne issync
 	jmp nextnote
+savekey:
+	sta SK
+	and #$07
+	ldx prio
+	clc
+	adc times_8,x
+	tax
+	lda #$00
+SK = * -1
+	sta opm_key_shadow,x
+	bra back2ymblock
 isgensync:
 	jsr advanceptr
 	bcs plaerror2
@@ -1852,7 +1874,7 @@ voice:
 	PRESERVE_BANK_CLOBBER_A_P
 
 	lda prio_active,x
-	cmp #$00
+	cmp #$01
 	lda prio_playable,x
 	php
 
@@ -2722,7 +2744,7 @@ check_enough:
 	sbc ringbuffer_start_h,x
 	bcs :+
 	adc #>RINGBUFFER_SIZE
-:	cmp #$02
+:	cmp #$03
 	jcc loop ; get more if start and end are not at least two pages apart
 next:
 	dex
@@ -2814,6 +2836,8 @@ done:
 	tya
 	sta streaming_filename_len,x
 	stz pcm_table_exists,x
+
+	jsr _zero_shadow
 
 	jsr _open_and_parse
 	RESTORE_BANK
@@ -2989,9 +3013,8 @@ PRI = * - 1
 	stz streaming_loop_point_h,x
 
 	jsr _open_zsm
-	bcc :+
-	jmp exit
-:
+	jcs error
+
 	; parse header
 	lda streaming_lfn_sa,x
 	tax
@@ -3109,7 +3132,7 @@ noerr2:
 	sta zsm_ptr_bank,x
 
 	jsr _calculate_speed ; X = prio
-
+	clc
 exit:
 	rts
 error:
@@ -3123,7 +3146,7 @@ error:
 	sta recheck_priorities
 	stz prio_playable,x
 	sec
-	bra exit
+	rts
 prio:
 	.byte 0
 .endproc
@@ -3500,12 +3523,49 @@ nopcm:
 	lda #$80
 	sta prio_playable,x
 
+	jsr _zero_shadow
+
 	jsr _calculate_speed
 
 	RESTORE_BANK
 	rts
 prio:
 	.byte 0
+.endproc
+
+;...............
+; _zero_shadow :
+;============================================================================
+; Arguments: .X = priority
+; Returns: (none)
+; Preserves: .X
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+.proc _zero_shadow: near
+	phx
+
+	lda #0
+	ldy times_16,x
+	ldx #64
+:	sta vera_psg_shadow,y
+	iny
+	dex
+	bne :-
+
+	plx
+	phx
+
+	lda #0
+	ldy times_8,x
+	ldx #8
+:	sta opm_key_shadow,y
+	iny
+	dex
+	bne :-
+
+	plx
+	rts
 .endproc
 
 ;...................
