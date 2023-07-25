@@ -38,6 +38,23 @@
 .export opm_shadow
 .export pcm_busy
 
+; exports for players (Melodius) to see where
+; the song cursors are
+.export zsm_loop_bank
+.export zsm_loop_l
+.export zsm_loop_h
+
+.export zsm_ptr_bank
+.export zsm_ptr_l
+.export zsm_ptr_h
+
+.export pcm_cur_bank
+.export pcm_cur_l
+.export pcm_cur_h
+
+.export loop_enable
+
+
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 4
 FILENAME_MAX_LENGTH = 64
@@ -2207,8 +2224,9 @@ end:
 	and $0f
 	sec
 	sbc pcm_atten_shadow,x
-
-	sta NV
+	bpl :+
+	lda #0
+:	sta NV
 	lda Vera::Reg::AudioCtrl
 	and #$30
 	ora #$0f
