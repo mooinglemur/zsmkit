@@ -1296,8 +1296,7 @@ iseod:
 	ldy #$00
 	; A == 0 already
 	jsr _callback
-	lda #$80
-	sta recheck_priorities
+	jsr _stop_sound
 	rts
 isext:
 	jsr advanceptr
@@ -2221,7 +2220,7 @@ end:
 	bne end
 
 	lda pcm_ctrl_shadow,x
-	and $0f
+	and #$0f
 	sec
 	sbc pcm_atten_shadow,x
 	bpl :+
@@ -2456,6 +2455,7 @@ exit:
 ;
 ; stops sound on all channels in the current priority, used by zsm_stop
 ; and in the tick routine if a streaming song runs out of data
+; or if EOD is otherwise reached
 .proc _stop_sound: near
 	stx PR
 
