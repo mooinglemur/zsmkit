@@ -1380,8 +1380,8 @@ issync:
 	jsr advanceptr
 	bcs plaerror2
 	jsr getzsmbyte
-	cmp #$00
-	beq isgensync
+	cmp #$02
+	bcc isgensync
 	jsr advanceptr
 	bcs plaerror2
 endsync:
@@ -1402,11 +1402,12 @@ SK = * -1
 	sta opm_key_shadow,x
 	bra back2ymblock
 isgensync:
+	adc #2 ; sync message 2 or 3
+	tay
 	jsr advanceptr
 	bcs plaerror2
 	jsr getzsmbyte
 	ldx prio
-	ldy #$02 ; sync message
 	jsr _callback
 	bra endsync
 ispcm:

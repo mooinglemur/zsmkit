@@ -206,9 +206,10 @@ Inside the callback, the RAM bank will be set to whatever bank was active at the
 |$00|$00|Song has ended normally|
 |$00|$80|Song has crashed|
 |$01|LSB of loop number|Song has looped|
-|$02|any|Synchronization message from ZSM|
+|$02|any|Synchronization message from ZSM (sync type 0)|
+|$03|Signed byte: tuning offset in 256ths of a semitone|Song tuning change from ZSM (sync type 1)|
 
-Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen. The callback does not need to take care to preserve any registers before returning.
+Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
 
 The callback does *not* need to take care to preserve any registers before returning.
 
