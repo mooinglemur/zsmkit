@@ -32,6 +32,9 @@
 .export zcm_play
 .export zcm_stop
 
+.export zsmkit_setisr
+.export zsmkit_clearisr
+
 ; exports for peeking inside from players, etc
 .export vera_psg_shadow
 .export opm_key_shadow
@@ -382,6 +385,76 @@ prioloop:
 	plp
 	rts
 .endproc
+
+
+;.............
+; zsm_setisr :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets up a default ISR handler and injects it before the existing ISR
+zsmkit_setisr:
+	nop
+	php
+	sei
+	lda #$ea
+	sta zsmkit_clearisr ; ungate zsmkit_clearisr
+	lda #$60
+	sta zsmkit_setisr ; gate zsmkit_setisr
+	lda X16::Vec::IRQVec
+	sta _old_isr+1
+	lda X16::Vec::IRQVec+1
+	sta _old_isr+2
+	lda #<_isr
+	sta X16::Vec::IRQVec
+	lda #>_isr
+	sta X16::Vec::IRQVec+1
+	plp
+	rts
+;...............
+; zsm_clearisr :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Clears the default ISR handler if it exists and restores the previous one
+zsmkit_clearisr:
+	rts
+	php
+	sei
+	lda #$60
+	sta zsmkit_clearisr ; gate zsmkit_clearisr
+	lda #$ea
+	sta zsmkit_setisr ; ungate zsmkit_setisr
+	lda _old_isr+1
+	sta X16::Vec::IRQVec
+	lda _old_isr+2
+	sta X16::Vec::IRQVec+1
+	plp
+	rts
+
+;.......
+; _isr :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; 
+; Default ISR set by zsmkit_setisr
+_isr:
+	jsr zsm_tick
+
+_old_isr:
+	jmp $ffff
 
 ;...........
 ; zsm_tick :

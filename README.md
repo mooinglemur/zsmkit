@@ -344,3 +344,17 @@ This routine handles everything that is necessary to play the currently active s
 
 Call this routine once per tick.  You will usually want to do this at the end of your interrupt handler routine.
 
+---
+#### `zsmkit_setisr`
+```
+Inputs: none
+```
+This sets up a default interrupt service routine that calls `zsm_tick` on every interrupt. This will work for most simple use cases of zsmkit if there's only one interrupt per frame.
+
+---
+#### `zsmkit_clearisr`
+```
+Inputs: none
+```
+This routine removes the interrupt service routine that was injected by `zsmkit_setisr`
+

@@ -23,3 +23,6 @@ zsm_pcmatten     = $084C
 zcm_setmem       = $085B
 zcm_play         = $085E
 zcm_stop         = $0861
+
+zsmkit_setisr    = $0864
+zsmkit_clearisr  = $0867

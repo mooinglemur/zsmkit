@@ -23,3 +23,5 @@
 .import zcm_setmem
 .import zcm_play
 .import zcm_stop
+.import zsmkit_setisr
+.import zsmkit_clearisr

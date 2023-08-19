@@ -22,21 +22,27 @@ EXE		:= $(call UC,$(PROJECT).PRG)
 LIBRARY := $(LIB)/$(PROJECT).lib
 INCBIN1 := $(LIB)/zsmkit-0810.bin
 INCBIN2 := $(LIB)/zsmkit-0830.bin
+BASBIN  := $(LIB)/zsmkit-8c00.bin
 
 
 default: all
 
-all: lib
+all: library
 
-lib: $(LIBRARY)
+library: $(LIBRARY)
 
 incbin: $(INCBIN1) $(INCBIN2)
+
+basicbin: $(BASBIN)
 
 $(INCBIN1): $(LIBRARY) $(OBJ)/jmptbl.o
 	$(LD) $(LDFLAGS) -C 0810.cfg $(OBJ)/jmptbl.o $(LIBRARY) -o $@
 
 $(INCBIN2): $(LIBRARY) $(OBJ)/jmptbl.o
 	$(LD) $(LDFLAGS) -C 0830.cfg $(OBJ)/jmptbl.o $(LIBRARY) -o $@
+
+$(BASBIN): $(LIBRARY) $(OBJ)/jmptbl.o
+	$(LD) $(LDFLAGS) -C 8c00.cfg $(OBJ)/jmptbl.o $(LIBRARY) -o $@
 
 $(OBJ)/jmptbl.o:
 	$(AS) $(ASFLAGS) $(SRC)/ibjmptbl.asm $(DEFINES) -o $(OBJ)/jmptbl.o
@@ -56,6 +62,6 @@ $(LIB):
 
 .PHONY: clean run
 clean:
-	$(RM) $(OBJS) $(OBJ)/jmptbl.o $(LIBRARY) $(INCBIN1) $(INCBIN2)
+	$(RM) $(OBJS) $(OBJ)/jmptbl.o $(LIBRARY) $(INCBIN1) $(INCBIN2) $(BASBIN)
 
 
