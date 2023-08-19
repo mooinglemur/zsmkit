@@ -33,17 +33,8 @@ This example uses a binary blob of ZSMKit loaded at the end of low RAM. It allow
 ```
 
 These are the entry points of this ZSMKit blob that can be used from BASIC.
-Use the SYS communication locations provided by the BASIC interpreter to
-pass register values.
 
 See the [quick reference](..) in the README of the parent directory of this one for documentation for each of these calls.
-
-```
-    $030C: Accumulator
-    $030D: X Register
-    $030E: Y Register
-    $030F: Status Register/Flags
-```
 
 ```
     zsm_init_engine  = $8C00
@@ -70,4 +61,14 @@ See the [quick reference](..) in the README of the parent directory of this one 
 
     zsmkit_setisr    = $8C54
     zsmkit_clearisr  = $8C57
+```
+
+Use the SYS communication locations provided by the BASIC interpreter to
+pass register values.  `POKE` values in before `SYS` and optionally `PEEK` them after the `SYS` to check for return values.
+
+```
+$030C: Accumulator
+$030D: X Register
+$030E: Y Register
+$030F: Status Register/Flags
 ```
