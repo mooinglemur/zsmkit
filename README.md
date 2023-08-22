@@ -1,4 +1,4 @@
-# zsmkit
+# ZSMKit
 Advanced music and sound effects engine for the Commander X16
 
 Code is in an early alpha state. Some features may not work correctly.
@@ -62,7 +62,7 @@ This file can be included at orign $0810 in your project.  The jump table addres
 
 This library requires a custom linker config in order to specify two custom segments.  This documentation assumes you are familiar with creating custom cc65 linker configs.
 
-Specifically, this library requires the `ZSMKITLIB` segment and the `ZSMKITBANK` segment.  The `ZSMKITLIB` **must** be located in low RAM, and the `ZSMKITBANK` segment is meant to point to high RAM. The linker config is only responsible for assembly of the addresses in the lib. The bank that's assigned to zsmkit is chosen at runtime, and zsmkit assumes that it has full control of that 8k bank.
+Specifically, this library requires the `ZSMKITLIB` segment and the `ZSMKITBANK` segment.  The `ZSMKITLIB` **must** be located in low RAM, and the `ZSMKITBANK` segment is meant to point to high RAM. The linker config is only responsible for assembly of the addresses in the lib. The bank that's assigned to zsmkit is chosen at runtime, and ZSMKit assumes that it has full control of that 8k bank.
 
 NOTE: this is an incomplete linker config file, but rather a relevant example of what must be in a custom one.  You can copy the stock cx16.cfg one and make sire it includes the HIRAM region and the two custom segments.
 
@@ -92,7 +92,7 @@ All calls except for `zsm_tick` are meant to be called from the main loop of the
 ---
 #### `zsm_init_engine`
 ```
-Inputs: .A = RAM bank to assign to zsmkit
+Inputs: .A = RAM bank to assign to ZSMKit
 ```
 This routine *must* be called once before any other library routines are called in order to initialize the state of the engine.
 
@@ -368,7 +368,7 @@ ZSMKit will need to know how often you plan to call its music data tick routine 
 ```
 Inputs: none
 ```
-This sets up a default interrupt service routine that calls `zsm_tick` on every interrupt. This will work for most simple use cases of zsmkit if there's only one interrupt per frame.
+This sets up a default interrupt service routine that calls `zsm_tick` on every interrupt. This will work for most simple use cases of ZSMKit if there's only one interrupt per frame.
 
 ---
 #### `zsmkit_clearisr`
