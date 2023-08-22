@@ -79,7 +79,7 @@ _sync:
 			oldjoy = newjoy
 
 			sys.waitvsync()
-			zsmkit.zsm_tick()
+			zsmkit.zsm_tick(0)
 			if (loopchanged) {
 				txt.nl()
 				loop_number += 1

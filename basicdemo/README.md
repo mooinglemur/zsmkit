@@ -54,6 +54,7 @@ See the [quick reference](..) in the README of the parent directory of this one 
     zsm_opmatten     = $8C36
     zsm_psgatten     = $8C39
     zsm_pcmatten     = $8C3C
+    zsm_set_int_rate = $8C3F
 
     zcm_setmem       = $8C4B
     zcm_play         = $8C4E

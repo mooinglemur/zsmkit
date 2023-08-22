@@ -306,6 +306,19 @@ Even though the PCM channel's volume has a 4-bit resolution, the attenuation val
 
 ---
 
+#### `zsm_set_int_rate`
+```
+Inputs: .A = new rate
+Outputs: none
+```
+Sets a new global interrupt rate in Hz. This will be the number of times per second that ZSMkit expects to have its tick subroutine called to advance the music data.
+
+Note: If you expect to play PCM sounds, either in songs or as ZCMs, you will still need to call `zsm_tick` with .A = 1 at a rate of approximately 60 times per second in order to keep the FIFO filled.  See [`zsm_tick`](#zsm_tick) for details.
+
+Calling `zsm_init_engine` will reset this value to 60.
+
+---
+
 
 ### API calls for main part of the program (ZCM)
 
@@ -338,11 +351,15 @@ This routine is the only one that is safe to call from an IRQ handler.
 ---
 #### `zsm_tick`
 ```
-Inputs: none
+Inputs: .A = 0 (tick music data and PCM)
+        .A = 1 (tick PCM only)
+        .A = 2 (tick music data only)
 ```
 This routine handles everything that is necessary to play the currently active songs, and to feed the PCM FIFO if any PCM events are in progress. If required, it will handle restoring channel states if, for instance, a higher priority ZSM ends or is stopped while a lower priority one is also playing.
 
-Call this routine once per tick.  You will usually want to do this at the end of your interrupt handler routine.
+Call this routine once per tick.  You will usually want to do this at the end of your interrupt handler routine.  You will usually want to call this with .A = 0 to tick both music data and PCM. The other values are useful if you want to tick the music at a rate different than 60 Hz. You will still want to tick the PCM at ~60 Hz, then use, for instance, a VIA timer to tick the music data at a different rate.
+
+ZSMKit will need to know how often you plan to call its music data tick routine if the value is not the default of 60 Hz. Call `zsm_set_int_rate` to change this value.
 
 ---
 #### `zsmkit_setisr`

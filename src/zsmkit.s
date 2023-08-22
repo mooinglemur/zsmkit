@@ -27,6 +27,7 @@
 .export zsm_opmatten
 .export zsm_psgatten
 .export zsm_pcmatten
+.export zsm_set_int_rate
 
 .export zcm_setmem
 .export zcm_play
@@ -307,6 +308,9 @@ recheck_priorities:      .res 1
 ; chip type (from X16 audio library)
 ym_chip_type:            .res 1
 
+; interrupt rate (default 60)
+int_rate:                .res 1
+
 _ZSM_BANK_END := *
 
 
@@ -372,10 +376,11 @@ prioloop:
 	dex
 	bpl prioloop
 .endif
+	; default rate of 60 Hz
+	lda #60
+	sta int_rate
 
-	; wait until chip detection is in current ROM
-;	jsr ym_get_chip_type
-	lda #$00
+	jsr ym_get_chip_type
 	sta ym_chip_type
 
 	pla
@@ -451,6 +456,7 @@ zsmkit_clearisr:
 ; 
 ; Default ISR set by zsmkit_setisr
 _isr:
+	lda #0
 	jsr zsm_tick
 
 _old_isr:
@@ -459,7 +465,9 @@ _old_isr:
 ;...........
 ; zsm_tick :
 ;============================================================================
-; Arguments: (none)
+; Arguments: .A = 0 (tick music data and PCM)
+;            .A = 1 (tick PCM only)
+;            .A = 2 (tick music data only)
 ; Returns: (none)
 ; Preserves: (none)
 ; Allowed in interrupt handler: yes
@@ -470,6 +478,7 @@ _old_isr:
 ; advances songs and plays the notes
 ;
 .proc zsm_tick: near
+	sta DOX
 	PRESERVE_BANK_CLOBBER_A_P_IRQ
 
 	lda X16::Reg::ROMBank
@@ -480,11 +489,6 @@ _old_isr:
 	; preserve VERA state
 	lda Vera::Reg::Ctrl
 	sta C1
-	;lda #%00000100 ; DCSEL=2
-	;sta Vera::Reg::Ctrl
-	;lda $9f29 ; FX Ctrl
-	; stz $9f29 - can't do this until FX is stabilized
-	;sta FX1
 	stz Vera::Reg::Ctrl
 	lda Vera::Reg::AddrL
 	sta A1
@@ -499,8 +503,14 @@ _old_isr:
 	lda #$f9
 	sta Vera::Reg::AddrM
 
+	lda #$ff
+DOX = *-1
+	and #1
+	bne ckpcm
+
 	jsr _reprio
 	jsr _reshadow
+
 	ldx #NUM_PRIORITIES-1
 	stx prio
 prioloop:
@@ -510,8 +520,13 @@ prioloop:
 	stx prio
 	bpl prioloop
 
+ckpcm:
+	lda DOX
+	and #2
+	bne tdone
 	jsr _pcm_player
 
+tdone:
 	; restore VERA state
 	lda #$ff
 A3 = *-1
@@ -522,11 +537,6 @@ A2 = *-1
 	lda #$ff
 A1 = *-1
 	sta Vera::Reg::AddrL
-;	lda #%00000100 ; DCSEL=2
-;	sta Vera::Reg::Ctrl
-;	lda #$ff
-;FX1 = *-1
-;	sta $9f29 ; FX ctrl
 	lda #$ff
 C1 = *-1
 	sta Vera::Reg::Ctrl
@@ -2030,6 +2040,41 @@ BK = * - 1
 	PRESERVE_BANK_CLOBBER_A_P
 
 	stz callback_enabled,x
+
+	RESTORE_BANK
+	rts
+.endproc
+
+;..................
+; zsm_set_intrate :
+;============================================================================
+; Arguments: .A = rate
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the global interrupt rate that ZSMKit will expect ticks
+.proc zsm_set_int_rate: near
+	pha
+	PRESERVE_BANK_CLOBBER_A_P
+	pla
+	sta int_rate
+
+	ldx #(NUM_PRIORITIES-1)
+
+@1:
+	lda prio_playable,x
+	beq @2
+	php
+	sei
+
+	jsr _calculate_speed
+
+	plp
+@2:	dex
+	bpl @1
+
 
 	RESTORE_BANK
 	rts
@@ -3690,8 +3735,8 @@ prio:
 	sta tmp2+1
 	lda tick_rate_h,x
 	sta tmp2+2
-	; initialize divisor to 60
-	lda #60
+	; initialize divisor to int_rate (default 60)
+	lda int_rate
 	sta tmp3
 	stz tmp3+1
 

@@ -19,6 +19,7 @@ zsm_setloop      = $0843
 zsm_opmatten     = $0846
 zsm_psgatten     = $0849
 zsm_pcmatten     = $084C
+zsm_set_int_rate = $084F
 
 zcm_setmem       = $085B
 zcm_play         = $085E

@@ -19,6 +19,7 @@
 .import zsm_opmatten
 .import zsm_psgatten
 .import zsm_pcmatten
+.import zsm_set_int_rate
 
 .import zcm_setmem
 .import zcm_play

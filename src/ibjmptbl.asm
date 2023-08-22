@@ -30,7 +30,8 @@ jmp zsm_setloop  ; $0843 / $0863 / $8C33
 jmp zsm_opmatten ; $0846 / $0866 / $8C36
 jmp zsm_psgatten ; $0849 / $0869 / $8C39
 jmp zsm_pcmatten ; $084C / $086C / $8C3C
-.repeat 4 ; for expansion
+jmp zsm_set_int_rate ; $084F / $086F / $8C3F
+.repeat 3 ; for expansion
 sec
 rts
 nop
