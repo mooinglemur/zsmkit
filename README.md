@@ -311,7 +311,7 @@ Even though the PCM channel's volume has a 4-bit resolution, the attenuation val
 Inputs: .A = new rate
 Outputs: none
 ```
-Sets a new global interrupt rate in Hz. This will be the number of times per second that ZSMkit expects to have its tick subroutine called to advance the music data.
+Sets a new global interrupt rate in Hz. This will be the number of times per second that ZSMKit expects to have its tick subroutine called to advance the music data.
 
 Note: If you expect to play PCM sounds, either in songs or as ZCMs, you will still need to call `zsm_tick` with .A = 1 at a rate of approximately 60 times per second in order to keep the FIFO filled.  See [`zsm_tick`](#zsm_tick) for details.
 
