@@ -361,6 +361,8 @@ Call this routine once per tick.  You will usually want to do this at the end of
 
 ZSMKit will need to know how often you plan to call its music data tick routine if the value is not the default of 60 Hz. Call `zsm_set_int_rate` to change this value.
 
+### Miscellaneous API calls
+
 ---
 #### `zsmkit_setisr`
 ```
