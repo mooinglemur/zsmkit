@@ -197,7 +197,7 @@ Priority 3: lfn/sa 14, device 8
 Inputs: .X = priority, .A .Y = pointer to callback, $00 = RAM bank
 ```
 
-Sets up a callback address for ZSMKit to `jsr` into.  The callback is triggered whenever a song loops or ends on its own.
+Sets up a callback address for ZSMKit to `jsr` into.  The callback is triggered whenever a song loops or ends on its own, or a synchronization message is processed in the ZSM data.
 
 Inside the callback, the RAM bank will be set to whatever bank was active at the time `zsb_setcb` was called.  .X will be set to the priority, .Y will be set to the event type, and .A will be the parameter value.
 
@@ -368,7 +368,7 @@ ZSMKit will need to know how often you plan to call its music data tick routine 
 ```
 Inputs: none
 ```
-This sets up a default interrupt service routine that calls `zsm_tick` on every interrupt. This will work for most simple use cases of ZSMKit if there's only one interrupt per frame.
+This sets up a default interrupt service routine that calls `zsm_tick` on every interrupt. The existing IRQ handler is called afterwards. This will work for most simple use cases of ZSMKit if there's only one interrupt per frame: VERA's VSYNC interrupt.
 
 ---
 #### `zsmkit_clearisr`
