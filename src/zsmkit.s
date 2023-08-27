@@ -74,8 +74,8 @@ saved_bank_irq: ; used for preserving the bank in IRQ call
 buff: ; used for things like filenames which need to be in low RAM
 	.res FILENAME_MAX_LENGTH
 tmp1 := buff
-tmp2 := buff+3
-tmp3 := buff+6
+tmp2 := buff+4
+tmp3 := buff+8
 
 .segment "ZSMKITBANK"
 _ZSM_BANK_START := *
@@ -310,6 +310,7 @@ ym_chip_type:            .res 1
 
 ; interrupt rate (default 60)
 int_rate:                .res 1
+int_rate_frac:           .res 1
 
 _ZSM_BANK_END := *
 
@@ -379,6 +380,7 @@ prioloop:
 	; default rate of 60 Hz
 	lda #60
 	sta int_rate
+	stz int_rate_frac
 
 	jsr ym_get_chip_type
 	sta ym_chip_type
@@ -2048,7 +2050,7 @@ BK = * - 1
 ;..................
 ; zsm_set_intrate :
 ;============================================================================
-; Arguments: .A = rate
+; Arguments: .A = rate (integer part), .Y fractional part (1/256ths)
 ; Returns: (none)
 ; Preserves: (none)
 ; Allowed in interrupt handler: no
@@ -2060,6 +2062,7 @@ BK = * - 1
 	PRESERVE_BANK_CLOBBER_A_P
 	pla
 	sta int_rate
+	sty int_rate_frac
 
 	ldx #(NUM_PRIORITIES-1)
 
@@ -3728,24 +3731,27 @@ prio:
 	; initialize remainder to 0
 	stz tmp1
 	stz tmp1+1
-	; dividend = tick_rate*256
+	; dividend = tick_rate*65536
 	; so that the quotient is a 16.8 fixed point result
 	stz tmp2
+	stz tmp2+1
 	lda tick_rate_l,x
-	sta tmp2+1
-	lda tick_rate_h,x
 	sta tmp2+2
-	; initialize divisor to int_rate (default 60)
-	lda int_rate
+	lda tick_rate_h,x
+	sta tmp2+3
+	; initialize divisor to int_rate (default 60.0)
+	lda int_rate_frac
 	sta tmp3
-	stz tmp3+1
+	lda int_rate
+	sta tmp3+1
 
-	; 24 bits in the dividend
-	ldx #24
+	; 32 bits in the dividend
+	ldx #32
 l1:
 	asl tmp2
 	rol tmp2+1
 	rol tmp2+2
+	rol tmp2+3
 	rol tmp1
 	rol tmp1+1
 	lda tmp1

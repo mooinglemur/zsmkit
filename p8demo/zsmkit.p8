@@ -22,7 +22,7 @@ zsmkit {
 	romsub $0866 = zsm_opmatten(ubyte prio @X, ubyte channel @Y, ubyte value @A) clobbers(A, X, Y)
 	romsub $0869 = zsm_psgatten(ubyte prio @X, ubyte channel @Y, ubyte value @A) clobbers(A, X, Y)
 	romsub $086C = zsm_pcmatten(ubyte prio @X, ubyte value @A) clobbers(A, X, Y)
-	romsub $086F = zsm_set_int_rate(ubyte value @A) clobbers(A, X, Y)
+	romsub $086F = zsm_set_int_rate(ubyte value @A, ubyte frac @Y) clobbers(A, X, Y)
 
 	romsub $087B = zcm_setmem(ubyte slot @X, uword data_ptr @AY) clobbers(A)
 	romsub $087E = zcm_play(ubyte slot @X, ubyte volume @A) clobbers(A, X)

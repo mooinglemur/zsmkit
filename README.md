@@ -308,7 +308,8 @@ Even though the PCM channel's volume has a 4-bit resolution, the attenuation val
 
 #### `zsm_set_int_rate`
 ```
-Inputs: .A = new rate
+Inputs: .A = new rate (integer portion in Hz)
+        .Y = new rate (fractional portion in 1/256th Hz)
 Outputs: none
 ```
 Sets a new global interrupt rate in Hz. This will be the number of times per second that ZSMKit expects to have its tick subroutine called to advance the music data.
