@@ -1392,7 +1392,7 @@ isext:
 	cmp #$80
 	bcc ischip
 	cmp #$c0
-	bcc issync
+	jcc issync
 	; channel 3, future use, ignore
 ischip: ; external chip, ignore
 	and #$3f
@@ -1417,7 +1417,11 @@ opmloop:
 	ldx ym_chip_type
 	cpx #$01 ; OPP?
 	bne :+
-	lda #$09 ; TEST register on OPP
+;	lda #$09 ; TEST register on OPP
+	; ignore write
+	jsr advanceptr
+	bcc back2ymblock
+	jmp error
 :	pha
 	jsr advanceptr
 	jcs plaerror
