@@ -1425,6 +1425,7 @@ opmloop:
 :	pha
 	jsr advanceptr
 	jcs plaerror
+	ldx prio
 	jsr getzsmbyte
 	plx
 	sta opm_shadow,x ; operand is overwritten at sub entry
