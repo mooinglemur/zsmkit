@@ -976,7 +976,7 @@ PRI = * - 1
 
 	; multiply number of instruments by 16 bytes to offset the instrument table
 	; pcm_inst_max is one less than the number of instruments, so resolve that here
-	
+
 	stz DH
 	lda pcm_inst_max,x
 	inc
@@ -985,7 +985,7 @@ PRI = * - 1
 :
 .repeat 4
 	asl
-	asl DH
+	rol DH
 .endrepeat
 	adc pcm_table_l,x
 	sta pcm_data_l,x
