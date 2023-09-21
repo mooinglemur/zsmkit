@@ -382,8 +382,15 @@ prioloop:
 	sta int_rate
 	stz int_rate_frac
 
+	ldx #$01
+
 	jsr ym_get_chip_type
 	sta ym_chip_type
+
+	cmp #1
+	bne :+
+	ldx #$09
+:	stx TEST_REGISTER
 
 	pla
 	sta X16::Reg::ROMBank
@@ -967,8 +974,15 @@ PRI = * - 1
 	lda PT+1
 	sta pcm_table_h,x
 
-	lda pcm_inst_max,x
+	; multiply number of instruments by 16 bytes to offset the instrument table
+	; pcm_inst_max is one less than the number of instruments, so resolve that here
+	
 	stz DH
+	lda pcm_inst_max,x
+	inc
+	bne :+
+	inc DH
+:
 .repeat 4
 	asl
 	asl DH
@@ -1412,20 +1426,13 @@ opmloop:
 	bcs error
 	jsr getzsmbyte
 	stx prio
-	cmp #$01 ; TEST register
+	cmp #$01 ; OPM TEST register
 	bne :+
-	ldx ym_chip_type
-	cpx #$01 ; OPP?
-	bne :+
-;	lda #$09 ; TEST register on OPP
-	; ignore write
-	jsr advanceptr
-	bcc back2ymblock
-	jmp error
+	lda #$01 ; Translated TEST register - changed to 9 for OPP
+TEST_REGISTER = * - 1
 :	pha
 	jsr advanceptr
 	jcs plaerror
-	ldx prio
 	jsr getzsmbyte
 	plx
 	sta opm_shadow,x ; operand is overwritten at sub entry
@@ -1436,7 +1443,8 @@ OS = *-1
 	cpx #$08 ; key on/off
 	beq savekey
 back2ymblock:
-	ldx prio
+	ldx #$00
+prio = * - 1
 	dey
 	bne opmloop
 	jmp nextnote
@@ -1607,7 +1615,7 @@ advanceptr:
 	rts
 
 _psg_write:
-	pha ; preserve value
+	sta @PSGAVAL ; preserve value
 	txa ; register
 	lsr
 	lsr ; now it's the voice number
@@ -1615,13 +1623,13 @@ _psg_write:
 	lda vera_psg_priority,y
 	cmp prio
 	bne :+
-	pla ; restore value
+	lda #$ff ; restore value (self-mod)
+@PSGAVAL = * - 1
 	jmp psg_write_fast
-:	pla ; restore value
-	rts
+:	rts
 
 _ym_write:
-	pha ; preserve value
+	sta @OPMAVAL ; preserve value
 	cpx #$08
 	beq @key ; register 8 is key-off/key-on, and value => voice
 	cpx #$0f
@@ -1637,7 +1645,8 @@ _ym_write:
 @cz:
 	cmp prio
 	bne @skip
-	pla
+	lda #$ff ; restore value (self-mod)
+@OPMAVAL = * - 1
 	jmp ym_write
 @zero:
 	lda #0
@@ -1646,12 +1655,10 @@ _ym_write:
 	ldy #$07
 	bra @key1
 @skip:
-	pla ; restore value
 	rts
-
-prio:
-	.byte 0
 .endproc
+
+TEST_REGISTER = _prio_tick::TEST_REGISTER
 
 ;..............
 ; _callback   :
@@ -1664,28 +1671,27 @@ prio:
 ;
 ; processes the callback
 .proc _callback: near
-	phx
-	pha
-	lda callback_enabled,x
-	beq nocb
+	bit callback_enabled,x
+	bpl nocb
+	sta AVAL
+	stx XVAL
 	lda callback_addr_l,x
 	sta CBL
 	lda callback_addr_h,x
 	sta CBH
 	lda callback_bank,x
 	sta X16::Reg::RAMBank
-	pla
+	lda #$00
+AVAL = * - 1
 
 	jsr $ffff
 CBL = * - 2
 CBH = * - 1
 	lda zsmkit_bank
 	sta X16::Reg::RAMBank
-	plx
-	rts
+	ldx #$00
+XVAL = * - 1
 nocb:
-	pla
-	plx
 	rts
 .endproc
 
