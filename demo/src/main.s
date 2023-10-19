@@ -441,6 +441,7 @@ song6:
 .proc irqhandler
 	lda #35
 	sta Vera::Reg::DCBorder
+	lda #0
 	jsr zsmkit::zsm_tick
 	jmp (oldirq)
 .endproc
