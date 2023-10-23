@@ -1,9 +1,8 @@
 # ZSMKit
 Advanced music and sound effects engine for the Commander X16
 
-Code is in an early alpha state. Some features may not work correctly.
+Due to bugs in the audio bank routine `psg_write` in earlier ROMs, the minimum earliest Commander X16 ROM release supported is R44.
 
-Due to bugs in the audio bank routine `psg_write` in earlier ROMs, the minimum earliest release supported will be R44. It should work with current master of x16-rom.
 
 ## Overview
 
@@ -19,20 +18,23 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 It also has these features that ZSound currently lacks:
 
 * Playback of ZSM files streamed from open files on SD card
-* Four playback slots (0-3)
+* Four playback slots with priorities (0-3)
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback
 * "Master volume" control for each playback slot
     * Individual voices' master volumes can also be overridden
 * ZSM files with PCM tracks are now handled and their PCM data is played back
 * ZSM synchronization messages are passed into an optional callback routine
-* Uses YM chip detection routine in ROM >= R44 and redirects LFO reset writes to register $09 if the chip type is OPP. (code has been written but the logic is currently disabled)
+* Uses YM chip detection routine in ROM >= R44 and redirects LFO reset writes to register $09 if the chip type is OPP/YM2164.
 
 These features are planned but not yet implemented
 
 * Feature to suspend specific channels for all priorities, allowing the channel/voice to be used outside of ZSMKit, such as simple in-game sound effects, for instance.
 
+## Support
 
-### Priority system
+The main discussion area for help with ZSMKit is in the [Commander X16 Discord server](https://discord.gg/nS2PqEC) in the [ZSMKit thread](https://discord.com/channels/547559626024157184/1118414097323663370).
+
+## Priority system
 
 In the code and documentation, a song slot is also known as a **priority**. There are four priorities, numbered from 0 to 3.  
 
@@ -54,9 +56,11 @@ You will likely want to include the file `src/zsmkit.inc` into your project as w
 
 ## Alternative builds
 
-For non-ca65/cc65 projects, there is one existing option. The build can produce the file `lib/8010.bin` by calling
+For non-ca65/cc65 projects, there is another option. The build can produce binary blobs `lib/8010.bin` and `lib/8030.bin` by calling
 `make incbin`
-This file can be included at orign $0810 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc`.
+One of these files can be included at origin $0810 or $0830 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc` (or `src/zsmkit8030.inc``).
+
+There is also another binary blob build target `make basicbin` which is predominantly for the BASIC integration.  In order for this build to work, the line which reads `DEFINES += -D ZSMKIT_ENABLE_STREAMING` must be first commented out of the `Makefile`.  This disables streaming support, saving about 1.5kB of space.  This target builds `zsmkit-8c00.bin`, which is otherwise functionally the same as the other binary blobs, and can be used for projects other than BASIC.
 
 ## Prerequisites
 
@@ -130,7 +134,7 @@ For streamed ZSM files that have PCM data, this routine can be used to load the 
 ```
 Inputs: .X = priority
 ```
-Cleans up any file I/O associated with a priority slot (if it's a song in streaming mode) and resets the state of the slot.
+Cleans up any file I/O associated with a priority slot (if it's a song in streaming mode) and resets the state of the slot. In either streaming or normal mode, this routine can be used to permanently stop a song's playback.
 
 ---
 
@@ -212,6 +216,11 @@ Inside the callback, the RAM bank will be set to whatever bank was active at the
 Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
 
 The callback does *not* need to take care to preserve any registers before returning.
+
+ZSM sync type 0 note: Furnace tracker can be used to create this type of event by placing the `EExx` effect in any VERA channel. However, please note that this effect will not be exported in ZSMs if placed in a YM2151 channel.  For example, the effect `EE64` will call the callback with Y = $02 and A = $64 at the moment of the event during playback. This can be useful for synchronization of game animations with the music, or for any other scenario when the application needs to do something at a certain point in the music.
+
+ZSM sync type 1 note: ZSM exports from Furnace will have an event of sync type 1 in the first tick of the song (but not necessarily the first event). The only known user of this information is Melodius, which adjusts its visualizations based on this tuning.  A real world example is that for Furnace projects that are tuned to, for instance, A=432 rather than A=440, the tuning information is used to make it so that the note visualizations are not all shown as pitch-bent.
+
 
 ---
 #### `zsm_clearcb`
