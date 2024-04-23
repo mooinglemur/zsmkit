@@ -29,10 +29,10 @@ main $0830 {
 			beq _sync
 			rts
 _loop:
-			inc p8_loopchanged
+			inc p8v_loopchanged
 			rts
 _sync:
-			inc p8_beat
+			inc p8v_beat
 			rts
 		}}
 	}
@@ -63,7 +63,8 @@ _sync:
 		ubyte intensity = 0
 
 		repeat {
-			uword newjoy = cx16.joystick_get2(0)
+			uword newjoy
+			newjoy, void = cx16.joystick_get(0)
 			if (newjoy != oldjoy and (newjoy & $10) == 0) {
 				if (paused) {
 					zsmkit.zsm_play(0)
