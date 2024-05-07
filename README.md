@@ -17,7 +17,7 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 
 It also has these features that ZSound currently lacks:
 
-* Playback of ZSM files streamed from open files on SD card
+* Playback of ZSM files streamed from open files on SD card (defined out by default, requires editing Makefile)
 * Four playback slots with priorities (0-3)
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback
 * "Master volume" control for each playback slot
@@ -112,6 +112,8 @@ Sets up the song pointers and parses the header based on a ZSM that was previous
 ```
 Inputs: .X = priority, .A .Y = pointer (lo hi) in low RAM to null-terminated filename
 ```
+*Function requires optional streaming support to be enabled in build*
+
 This is an alternate song-loading method. It sets up a priority slot to stream a ZSM file from disk (SD card). The file is opened and stays open for as long as the song is playable (i.e. until `zsm_close` is called, or another song is loaded into the priority).  Instead of holding the entire ZSM in memory, it is streamed from the file in small chunks and held in a small ring buffer inside the bank assigned to ZSMKit.
 
 For ZSM files that contain PCM data, the song will play without triggering the PCM events unless `zsm_loadpcm` is called after `zsm_setfile`.
@@ -126,6 +128,8 @@ See `zsm_setlfs` for LFN/device/SA defaults that are used by the engine.
 Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
 Outputs: .A .Y = next memory location after end of load, $00 = RAM bank
 ```
+*Function requires optional streaming support to be enabled in build*
+
 For streamed ZSM files that have PCM data, this routine can be used to load the PCM data into memory at the specified memory location. This should be done immediately after calling `zsm_setfile` and before `zsm_play`.
 
 ---
@@ -174,6 +178,8 @@ Attenuation is set on all active channels for the priority, and will also affect
 ```
 Inputs: none
 ```
+*Function requires optional streaming support to be enabled in build*
+
 If you are using the streaming mode of ZSMKit (with `zsm_setfile`), call this routine once per frame/tick from the main loop of the program (not in the interrupt handler!). This will, if necessary, read some data from open files to keep the ring buffers sufficiently primed so that the `zsm_tick` call has sufficient data to process for the tick.
 
 ---
@@ -181,6 +187,8 @@ If you are using the streaming mode of ZSMKit (with `zsm_setfile`), call this ro
 ```
 Inputs: .A = lfn/sa, .X = priority, .Y = device
 ```
+*Function requires optional streaming support to be enabled in build*
+
 Sets the logical file number, secondary address, and IEC device for a particular priority
 
 Must only be called from main loop routines.

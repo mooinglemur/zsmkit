@@ -1,8 +1,8 @@
 DEFINES =
 
-# Comment this to save space if you don't plan to stream ZSMs from disk without
-# loading them in their entirety
-DEFINES += -D ZSMKIT_ENABLE_STREAMING
+# Disabled to save space as most don't plan to stream ZSMs from disk
+# Saves about 1.5kB of low RAM
+#DEFINES += -D ZSMKIT_ENABLE_STREAMING
 
 UC = $(shell echo '$1' | tr '[:lower:]' '[:upper:]')
 
