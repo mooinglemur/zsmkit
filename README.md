@@ -44,14 +44,16 @@ Priorities 1-3 would typically be used for short jingles and sound effects.
 
 When composing/arranging your music and sound effects, keep channel use in mind. For more seamless playback, sound effects are best written to be played on channels that are not used by your main BGM music, or choose channels whose absence in your BGM are less noticeable if they are taken over by the higher priority playback.
 
-In addition, when a song that is currently playing has channels that are restored from being suspended, either by calling `zsm_play` after being paused, or via a higher priority song ending or being stopped, notes that were supposed to be playing on the YM2151 during the suspension are not restored mid-note. The channel will sound again once the next key down event occurs. Please be aware of this when putting lengthy legatos in your BGM as such passages may stay silent longer than you'd expect if they're interrupted.  This is however not a concern on VERA PSG as notes are simply defined by channel volume. A VERA channel being un-suspended will immediately play sound if the priority on the restored channel calls for it.
+In addition, when a song that is currently playing has channels that are restored from being suspended, either by calling `zsm_play` after being paused, or via a higher priority song ending or being stopped, notes that were supposed to be playing on the YM2151 during the suspension are not restored mid-note. The channel will sound again once the next key down event occurs. Please be aware of this when putting lengthy legatos in your BGM as such passages may stay silent longer than you'd expect if they're interrupted.
+
+The behavior in the previous paragraph is however not a concern on VERA PSG as notes are simply defined by their channel volume. A VERA channel being un-suspended will immediately play sound if the priority on the restored channel calls for it.
 
 ## Building and using in your project
 
 This library was written for the `cc65` suite.  As of the writing of this documentation, it is geared toward including in assembly language projects.
 
-To build the library, run
-`make`
+To build the library, run  
+`make`  
 from the main project directory. This will create `lib/zsmkit.lib`, which you can build into your project.
 
 You will likely want to include the file `src/zsmkit.inc` into your project as well for the library's label names.
@@ -60,7 +62,7 @@ You will likely want to include the file `src/zsmkit.inc` into your project as w
 
 For non-ca65/cc65 projects, there is another option. The build can produce binary blobs `lib/8010.bin` and `lib/8030.bin` by calling
 `make incbin`
-One of these files can be included at origin $0810 or $0830 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc` (or `src/zsmkit8030.inc``).
+One of these files can be included at origin $0810 or $0830 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc` (or `src/zsmkit8030.inc`).
 
 There is also another binary blob build target `make basicbin` which is predominantly for the BASIC integration.  In order for this build to work, the line which reads `DEFINES += -D ZSMKIT_ENABLE_STREAMING` must be commented out of the `Makefile`.  This disables streaming support, saving about 1.5kB of space.  This target builds `zsmkit-8c00.bin`, which is otherwise functionally the same as the other binary blobs, and can be used for projects other than BASIC.
 
