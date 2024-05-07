@@ -17,7 +17,7 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 
 It also has these features that ZSound currently lacks:
 
-* Playback of ZSM files streamed from open files on SD card (defined out by default, requires editing Makefile)
+* Playback of ZSM files streamed from open files on SD card (disabled by default, requires editing Makefile to enable)
 * Four playback slots with priorities (0-3)
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback
 * "Master volume" control for each playback slot
@@ -38,11 +38,13 @@ The main discussion area for help with ZSMKit is in the [Commander X16 Discord s
 
 In the code and documentation, a song slot is also known as a **priority**. There are four priorities, numbered from 0 to 3.  
 
-Priority 0 is the lowest priority. It would typically used for playback of background game music, as an example.  Priority 0 is also the only slot in which LFO parameters are honored (YM2151 registers < $20)
+Priority 0 is the lowest priority, and thus can be interrupted by any other priority. It would typically used for playback of background game music, as an example.  Priority 0 is also the only slot in which LFO parameters are honored (YM2151 registers < $20)
 
 Priorities 1-3 would typically be used for short jingles and sound effects.
 
 When composing/arranging your music and sound effects, keep channel use in mind. For more seamless playback, sound effects are best written to be played on channels that are not used by your main BGM music, or choose channels whose absence in your BGM are less noticeable if they are taken over by the higher priority playback.
+
+In addition, when a song that is currently playing has channels that are restored from being suspended, either by calling `zsm_play` after being paused, or via a higher priority song ending or being stopped, notes that were supposed to be playing on the YM2151 during the suspension are not restored mid-note. The channel will sound again once the next key down event occurs. Please be aware of this when putting lengthy legatos in your BGM as such passages may stay silent longer than you'd expect if they're interrupted.  This is however not a concern on VERA PSG as notes are simply defined by channel volume. A VERA channel being un-suspended will immediately play sound if the priority on the restored channel calls for it.
 
 ## Building and using in your project
 
@@ -60,7 +62,7 @@ For non-ca65/cc65 projects, there is another option. The build can produce binar
 `make incbin`
 One of these files can be included at origin $0810 or $0830 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc` (or `src/zsmkit8030.inc``).
 
-There is also another binary blob build target `make basicbin` which is predominantly for the BASIC integration.  In order for this build to work, the line which reads `DEFINES += -D ZSMKIT_ENABLE_STREAMING` must be first commented out of the `Makefile`.  This disables streaming support, saving about 1.5kB of space.  This target builds `zsmkit-8c00.bin`, which is otherwise functionally the same as the other binary blobs, and can be used for projects other than BASIC.
+There is also another binary blob build target `make basicbin` which is predominantly for the BASIC integration.  In order for this build to work, the line which reads `DEFINES += -D ZSMKIT_ENABLE_STREAMING` must be commented out of the `Makefile`.  This disables streaming support, saving about 1.5kB of space.  This target builds `zsmkit-8c00.bin`, which is otherwise functionally the same as the other binary blobs, and can be used for projects other than BASIC.
 
 ## Prerequisites
 
@@ -105,7 +107,9 @@ This routine *must* be called once before any other library routines are called 
 ```
 Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
 ```
-Sets up the song pointers and parses the header based on a ZSM that was previously loaded into RAM. If the song is valid, it marks the priority slot as playable.
+Prior to calling, set the active RAM bank ($00) to the bank where the ZSM data starts.
+
+This function sets up the song pointers and parses the header based on a ZSM that was previously loaded into RAM. If the song is deemed valid, it marks the priority slot as playable.
 
 ---
 #### `zsm_setfile`
