@@ -2199,6 +2199,7 @@ bounds_checked:
 	stx PRI
 
 	lda times_8,x
+	clc
 	adc #<opm_atten_shadow
 	sta OAS
 	lda #>opm_atten_shadow
