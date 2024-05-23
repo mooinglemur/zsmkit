@@ -2358,11 +2358,11 @@ end:
 ;
 ; Sets the PCM attenuation value of a song.  $00 = full volume, $3F = muted
 .proc _pcmatten: near
-	cmp #$3f
-	bcc :+
-	lda #$3f
-:	lsr
-	lsr
+	ldy #16
+:	dey
+	cmp scalelut,y
+	bcc :-
+	tya
 	sta pcm_atten_shadow,x
 	cpx pcm_prio
 	bne end
@@ -2381,6 +2381,9 @@ NV = * -1
 	sta Vera::Reg::AudioCtrl
 end:
 	rts
+scalelut:
+	.byte 0,5,9,14,18,23,27,31
+	.byte 36,40,45,49,54,58,61,63
 .endproc
 
 ;...............
