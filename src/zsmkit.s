@@ -2187,12 +2187,26 @@ BK = * - 1
 	sta VAL
 	bra bounds_checked
 :	sta V1
+	sta VAL ; divide by 3
+	lsr
+	lsr
+	adc VAL
+	ror
+	lsr
+	adc VAL
+	ror
+	lsr
+	adc VAL
+	ror
+	lsr
+	adc VAL
+	ror
 	lsr
 	sta VAL
 	lda #$00
 V1 = * - 1
 	sec
-	sbc VAL
+	sbc VAL ; subtract 1/3 from the atten value (multiply by 2/3)
 	sta VAL
 
 bounds_checked:
