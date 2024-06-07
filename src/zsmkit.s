@@ -80,6 +80,7 @@ tmp3 := buff+8
 .segment "ZSMKITBANK"
 _ZSM_BANK_START := *
 
+.ifdef ZSMKIT_ENABLE_STREAMING
 ; To support the option of streaming ZSM data from SD card,
 ; ZSMKit allocates 1k for each of the four priorities.
 ; These ring buffers are fed by calling `zsm_fill_buffers`
@@ -91,6 +92,7 @@ _ZSM_BANK_START := *
 ;
 ; offset = (priority * 1024)
 zsm_ringbuffers:        .res NUM_PRIORITIES*RINGBUFFER_SIZE
+.endif
 
 ; offset = priority*256
 opm_shadow:             .res NUM_PRIORITIES*256
@@ -1320,7 +1322,7 @@ bytes_left:
 	adc #<vera_psg_shadow
 	sta PS
 	lda #>vera_psg_shadow
-	adc #0
+	adc times_64h,x
 	sta PS+1
 
 	txa
@@ -1858,7 +1860,7 @@ opmloop:
 	adc #0
 	sta OASR+1
 
-	lda opm_priority,y	
+	lda opm_priority,y
 
 	clc
 	adc #>opm_shadow
@@ -1923,7 +1925,7 @@ psgloop:
 	adc #<vera_psg_shadow
 	sta PL
 	lda #>vera_psg_shadow
-	adc #0
+	adc times_64h,x
 	sta PL+1
 
 	ldy voice
@@ -1941,7 +1943,7 @@ psgloop:
 	asl
 	asl
 	tax
-	ldy #4
+	ldy #4 ; number of data bytes per channel
 shpsgloop:
 	phy
 	lda vera_psg_shadow,x
@@ -1993,7 +1995,7 @@ voice:
 
 	lda loop_number_l,x
 	ldy loop_number_h,x
-	
+
 	tax
 	RESTORE_BANK
 	txa
@@ -3858,12 +3860,12 @@ ringbuffer_end_page: ; non-inclusive
 .repeat NUM_PRIORITIES, i
 	.byte $A0+((i+1)*(RINGBUFFER_SIZE >> 8))
 .endrepeat
-.endif
 
 times_fn_max_length:
 .repeat NUM_PRIORITIES, i
 	.byte i*FILENAME_MAX_LENGTH
 .endrepeat
+.endif
 
 times_8:
 .repeat NUM_PRIORITIES, i
@@ -3877,7 +3879,12 @@ times_16:
 
 times_64:
 .repeat NUM_PRIORITIES, i
-	.byte i*64
+	.byte <(i*64)
+.endrepeat
+
+times_64h:
+.repeat NUM_PRIORITIES, i
+	.byte >(i*64)
 .endrepeat
 
 ; ZSound-derived FIFO-fill LUTs
@@ -3900,3 +3907,8 @@ pcmrate_slow:
 	.byte $80,$82,$83,$85,$87,$88,$8A,$8B,$8D,$8F,$90,$92,$93,$95,$96,$98
 	.byte $9A,$9B,$9D,$9E,$A0,$A2,$A3,$A5,$A6,$A8,$AA,$AB,$AD,$AE,$B0,$B1
 	.byte $B3,$B5,$B6,$B8,$BA,$BC,$BE,$BF,$C1,$C2,$C4,$C6,$C7,$C9,$CA,$CC
+
+.ifdef ZSMKIT_ENABLE_STREAMING
+.assert NUM_PRIORITIES <= 4, error, "If streaming is enabled, number of priorities must be <= 4"
+.endif
+.assert NUM_PRIORITIES <= 16, error, "Memory constraints restrict number of priorities to be <= 16"
