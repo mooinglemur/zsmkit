@@ -1,15 +1,44 @@
+// MIT License
+
+// Copyright (c) 2024 Mikael Lund and Wombat
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// ZSMKit wrapper for playback with LLVM-MOS C/C++
+//
+// Notes:
+//
+// - Section `".zsm_section"` must be defined for $8c00; see link.ld
+// - Included ZSMKit hard-coded to $8c00
+// - Compile with:
+//   ~~~
+//   mos-cx16-clang++ -Oz -flto test.cpp -Wextra -Wno-c23-extensions -T link.ld
+//   ~~~
+// - More information:
+//   - https://github.com/mooinglemur/zsmkit
+//   - https://github.com/X16Community/x16-docs
+//   - https://github.com/JimmyDansbo/x16maze
+
 #pragma once
 
 #include <cstdint>
 #include <cx16.h>
-
-// Compile with:
-//
-// mos-cx16-clang++ -Oz -flto test.cpp -Wextra -Wno-c23-extensions -T linker.ld
-
-// https://github.com/X16Community/x16-docs
-// https://github.com/mooinglemur/zsmkit
-// https://github.com/JimmyDansbo/x16maze
 
 #define ZSM_ADDR 0x8c00
 #define ZSM_INIT_ENGINE ZSM_ADDR + 0x00
@@ -43,11 +72,11 @@
 #define xstr(s) str(s)
 #define str(s) #s
 
-// These values are used to tell zsm_setloop to loop or not
+// Tell zsm_setloop to loop or not
 #define DO_LOOP 1
 #define NO_LOOP 0
 
-// These values are used to tell zsm_tick what to update
+// Tell zsm_tick what to update
 #define MUSIC_PCM 0  // Music and PCM
 #define PCM_ONLY 1   // Only PCM
 #define MUSIC_ONLY 2 // Only Music

@@ -1,9 +1,9 @@
 # Define the compiler and flags
 CXX = mos-cx16-clang++
 CXXFLAGS = -Oz -flto -I . -Wall -Wno-c23-extensions -Wextra
-LDFLAGS = -T linker.ld
+LDFLAGS = -T link.ld
 TARGET = test.prg
-SRC = test.cpp
+SRC = test.cc
 
 # Default target
 all: $(TARGET)
@@ -16,5 +16,8 @@ $(TARGET): $(SRC)
 clean:
 	rm -f $(TARGET) 
 
+run: $(TARGET)
+	x16emu -prg $(TARGET) -run
+
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean run
