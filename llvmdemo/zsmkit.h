@@ -1,6 +1,6 @@
 // MIT License
 
-// Copyright (c) 2024 Mikael Lund and Wombat
+// Copyright (c) 2024 Mikael Lund aka Wombat
 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,8 @@
 //
 // Notes:
 //
-// - Section `".zsm_section"` must be defined for $8c00; see link.ld
+// - Todo: enable streaming and remaining wrappers
+// - Section `".zsm_section"` must be defined and start at $8c00; see link.ld
 // - Included ZSMKit hard-coded to $8c00
 // - Compile with:
 //   ~~~
@@ -206,11 +207,9 @@ inline struct zsm_state zsm_getstate(const uint8_t priority) {
 //
 //   `xxd -i ../lib/zsmkit-8c00.bin
 //
-// We could alternatively have used
+// We could alternatively have used `#embed "../lib/zsmkit-8c00.bin"`
 //
-//   `#embed "../lib/zsmkit-8c00.bin"`
-//
-// MUST be placed at $8c00 using a linker section!
+// MUST be placed at $8c00 using a custom linker script!
 __attribute__((section(".zsm_section"),
                used)) static const uint8_t zsmkitinc[] = {
     0x4c, 0x9d, 0x8c, 0x4c, 0x3e, 0x8d, 0x4c, 0x7d, 0x99, 0x4c, 0x0d, 0x99,
