@@ -9,7 +9,7 @@ enum : uint8_t {
   SONGDATA_BANK,
 };
 
-// Kernel LOAD destination flags
+// Kernal LOAD destination flags
 enum : uint8_t {
   LOAD_RAM = 0,    //!< Load into RAM
   LOAD_VERIFY = 1, //!< Performs verify
@@ -24,7 +24,7 @@ constexpr uint16_t SONGDATA_ADDR = 0xa000; // Start of banked ram
 void load_song(const char *filename) {
   constexpr uint8_t LFN = 15;            // Logical file number
   constexpr uint8_t SECONDARY_ADDR = 15; // Secondary address
-  constexpr uint8_t MAIN_DISK_DEV = 8;   // Try SD card; then serial
+  constexpr uint8_t MAIN_DISK_DEV = 8;   // First try SD card; then serial
 
   RAM_BANK = SONGDATA_BANK;
   cbm_k_setnam(filename);
@@ -33,8 +33,9 @@ void load_song(const char *filename) {
 }
 
 int main() {
-  printf("Loading ZSM data from disk...\n");
-  load_song("SONG1.ZSM");
+  const char *filename = "BACK_AGAIN.ZSM";
+  printf("Loading %s from disk...\n", filename);
+  load_song(filename);
 
   // Set up ZSMKit
   constexpr uint8_t PRIORITY = 0;
