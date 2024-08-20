@@ -27,10 +27,7 @@
 // - Todo: enable streaming and remaining wrappers
 // - Section `".zsm_section"` must be defined and start at $8c00; see link.ld
 // - Included ZSMKit hard-coded to $8c00
-// - Compile with:
-//   ~~~
-//   mos-cx16-clang++ -Oz -flto test.cpp -Wextra -Wno-c23-extensions -T link.ld
-//   ~~~
+// - Compile with `mos-cx16-clang -T link.ld ...`
 // - More information:
 //   - https://github.com/mooinglemur/zsmkit
 //   - https://github.com/X16Community/x16-docs
@@ -78,11 +75,13 @@
 #define NO_LOOP 0
 
 // Tell zsm_tick what to update
-#define MUSIC_PCM 0  // Music and PCM
-#define PCM_ONLY 1   // Only PCM
-#define MUSIC_ONLY 2 // Only Music
+enum : uint8_t {
+  ZCM_TICK_ALL = 0,
+  ZCM_TICK_PCM_ONLY = 1,
+  ZCM_TICK_MUSIC_ONLY = 2
+};
 
-struct zsm_state {
+struct ZsmState {
   uint8_t playing;
   uint8_t not_playable;
   union {
@@ -94,7 +93,6 @@ struct zsm_state {
   };
 };
 
-// zsm_init_engine
 // Inputs: .A = RAM bank to assign to ZSMKit
 // This routine must be called once before any other library routines are called
 // in order to initialize the state of the engine.
@@ -104,7 +102,6 @@ inline void zsm_init_engine(const uint8_t bank) {
       : "x", "y", "p");
 }
 
-// zsm_setmem
 // Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
 // Prior to calling, set the active RAM bank ($00) to the bank where the ZSM
 // data starts. This function sets up the song pointers and parses the header
@@ -119,7 +116,6 @@ inline void zsm_setmem(const uint8_t priority, const uint16_t addr,
       : "p");
 }
 
-// zsm_tick
 // Inputs: .A = 0 (tick music data and PCM)
 //         .A = 1 (tick PCM only)
 //         .A = 2 (tick music data only)
@@ -128,15 +124,11 @@ inline void zsm_tick(const uint8_t what) {
                                      : "x", "y", "p");
 }
 
-// zsm_play
-// Inputs: .X = priority
 inline void zsm_play(const uint8_t priority) {
   __attribute__((leaf)) asm volatile("jsr " xstr(ZSM_PLAY) "\n" ::"x"(priority)
                                      : "a", "y", "p");
 }
 
-// zsm_play
-// Inputs: .X = priority
 inline void zsm_stop(const uint8_t priority) {
   __attribute__((leaf)) asm volatile("jsr " xstr(ZSM_STOP) "\n" ::"x"(priority)
                                      : "a", "y", "p");
@@ -153,7 +145,6 @@ inline void zsm_close(const uint8_t priority) {
                                      : "a", "y", "p");
 }
 
-// zsm_setatten
 // Inputs: .X = priority, .A = attenuation value
 inline void zsm_setatten(const uint8_t priority, const uint8_t attenuation) {
   __attribute__((leaf)) asm volatile(
@@ -161,7 +152,6 @@ inline void zsm_setatten(const uint8_t priority, const uint8_t attenuation) {
       : "y", "p");
 }
 
-// zsm_setcb
 // Inputs: .X = priority, .A .Y = pointer to callback, $00 = RAM bank
 inline void zsm_setcb(const uint8_t priority, const uint16_t callback,
                       const uint8_t bank) {
@@ -172,8 +162,6 @@ inline void zsm_setcb(const uint8_t priority, const uint16_t callback,
       : "p");
 }
 
-// zsm_clearcb
-// Inputs: .X = priority
 inline void zsm_clearcb(const uint8_t priority) {
   __attribute__((leaf)) asm volatile(
       "jsr " xstr(ZSM_CLEARCB) "\n" ::"x"(priority)
@@ -182,8 +170,8 @@ inline void zsm_clearcb(const uint8_t priority) {
 
 // Inputs: .X = priority
 // Outputs: .C = playing, Z = not playable, .A .Y = (lo hi) loop counter
-inline struct zsm_state zsm_getstate(const uint8_t priority) {
-  struct zsm_state state;
+inline struct ZsmState zsm_getstate(const uint8_t priority) {
+  struct ZsmState state;
   __attribute__((leaf)) asm volatile(
       "jsr " xstr(ZSM_GETSTATE) "\n"
                                 "php\n"    // P -> stack
@@ -203,12 +191,8 @@ inline struct zsm_state zsm_getstate(const uint8_t priority) {
   return state;
 }
 
-// Generated with
-//
-//   `xxd -i ../lib/zsmkit-8c00.bin
-//
-// We could alternatively have used `#embed "../lib/zsmkit-8c00.bin"`
-//
+// Generated with `xxd -i ../lib/zsmkit-8c00.bin`.
+// Alternatively use `#embed "../lib/zsmkit-8c00.bin"`
 // MUST be placed at $8c00 using a custom linker script!
 __attribute__((section(".zsm_section"),
                used)) static const uint8_t zsmkitinc[] = {
