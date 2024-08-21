@@ -1,28 +1,29 @@
 # Define the compiler and flags
-CC = mos-cx16-clang
-CXX = mos-cx16-clang++
-CXXFLAGS = -Oz -flto -I . -Wall -Wno-c23-extensions -Wextra
-LDFLAGS = -T link.ld
-TARGET = test.prg
-ZSMKIT = zsmkit.o
+CC       = mos-cx16-clang
+CXX      = mos-cx16-clang++
+CFLAGS   = -Oz -flto -I . -Wall -Wextra -std=c23
+CXXFLAGS = -Oz -flto -I . -Wall -Wextra
+LDFLAGS  = -T link.ld
+TEST     = test.prg
+ZSMKIT   = zsmkit.o
 
 # Default target
-all: $(TARGET)
+all: $(TEST)
 
 # Compile zsmkit.o
 $(ZSMKIT): zsmkit.c zsmkit.h
-	$(CC) $(CXXFLAGS) -c zsmkit.c -o $(ZSMKIT)
+	$(CC) $(CFLAGS) -c zsmkit.c -o $(ZSMKIT)
 
 # Compile and link the target
-$(TARGET): test.cc $(ZSMKIT)
-	$(CXX) $(CXXFLAGS) test.cc $(ZSMKIT) -o $(TARGET) $(LDFLAGS)
+$(TEST): test.c $(ZSMKIT)
+	$(CC) $(CFLAGS) test.c $(ZSMKIT) -o $(TEST) $(LDFLAGS)
 
 # Clean up the build files
 clean:
-	rm -f $(TARGET) $(TARGET).elf $(ZSMKIT) 
+	rm -f $(TEST) $(TEST).elf $(ZSMKIT) 
 
-run: $(TARGET)
-	x16emu -prg $(TARGET) -run
+run: $(TEST)
+	x16emu -prg $(TEST) -run
 
 # Phony targets
 .PHONY: all clean run

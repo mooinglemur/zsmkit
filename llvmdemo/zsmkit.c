@@ -62,7 +62,7 @@
 // This routine must be called once before any other library routines are called
 // in order to initialize the state of the engine.
 void zsm_init_engine(const uint8_t bank) {
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_INIT_ENGINE) "\n" ::"a"(bank)
       : "x", "y", "p");
 }
@@ -75,7 +75,7 @@ void zsm_init_engine(const uint8_t bank) {
 void zsm_setmem(const uint8_t priority, const uint16_t addr,
                 const uint8_t bank) {
   RAM_BANK = bank;
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_SETMEM) "\n" ::"x"(priority), "a"((uint8_t)(addr & 0xFF)),
       "y"((uint8_t)((addr >> 8) & 0xFF))
       : "p");
@@ -85,34 +85,37 @@ void zsm_setmem(const uint8_t priority, const uint16_t addr,
 //         .A = 1 (tick PCM only)
 //         .A = 2 (tick music data only)
 void zsm_tick(const uint8_t what) {
-  __attribute__((leaf)) asm volatile("jsr " xstr(ZSM_TICK) "\n" ::"a"(what)
-                                     : "x", "y", "p");
+  __attribute__((leaf)) __asm__ volatile("jsr " xstr(ZSM_TICK) "\n" ::"a"(what)
+                                         : "x", "y", "p");
 }
 
 void zsm_play(const uint8_t priority) {
-  __attribute__((leaf)) asm volatile("jsr " xstr(ZSM_PLAY) "\n" ::"x"(priority)
-                                     : "a", "y", "p");
+  __attribute__((leaf)) __asm__ volatile(
+      "jsr " xstr(ZSM_PLAY) "\n" ::"x"(priority)
+      : "a", "y", "p");
 }
 
 void zsm_stop(const uint8_t priority) {
-  __attribute__((leaf)) asm volatile("jsr " xstr(ZSM_STOP) "\n" ::"x"(priority)
-                                     : "a", "y", "p");
+  __attribute__((leaf)) __asm__ volatile(
+      "jsr " xstr(ZSM_STOP) "\n" ::"x"(priority)
+      : "a", "y", "p");
 }
 
 void zsm_rewind(const uint8_t priority) {
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_REWIND) "\n" ::"x"(priority)
       : "a", "y", "p");
 }
 
 void zsm_close(const uint8_t priority) {
-  __attribute__((leaf)) asm volatile("jsr " xstr(ZSM_CLOSE) "\n" ::"x"(priority)
-                                     : "a", "y", "p");
+  __attribute__((leaf)) __asm__ volatile(
+      "jsr " xstr(ZSM_CLOSE) "\n" ::"x"(priority)
+      : "a", "y", "p");
 }
 
 // Inputs: .X = priority, .A = attenuation value
 void zsm_setatten(const uint8_t priority, const uint8_t attenuation) {
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_SETATTEN) "\n" ::"x"(priority), "a"(attenuation)
       : "y", "p");
 }
@@ -121,23 +124,35 @@ void zsm_setatten(const uint8_t priority, const uint8_t attenuation) {
 void zsm_setcb(const uint8_t priority, const uint16_t callback,
                const uint8_t bank) {
   RAM_BANK = bank;
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_SETCB) "\n" ::"x"(priority), "a"((uint8_t)(callback)),
       "y"((uint8_t)(callback >> 8))
       : "p");
 }
 
 void zsm_clearcb(const uint8_t priority) {
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_CLEARCB) "\n" ::"x"(priority)
       : "a", "y", "p");
 }
 
 // Inputs: .X = priority
 // Outputs: .C = playing, Z = not playable, .A .Y = (lo hi) loop counter
+// bne 1f
+//   ta%2       // A -> X -> loopcnt_lo
+//   lda #0     // A = 1 if Z is set
+//   sta %3     // A -> r -> not_playable
+//   rol        // C -> A -> playing
+//   bpl 2f     // Unconditional branch
+// .1:
+//   ta%2       // A -> X -> loopcnt_lo
+//   lda #1     // A = 1 if Z is set
+//   sta %3     // A -> r -> not_playable
+//   sbc #0     // C -> A -> playing
+// .2:
 struct ZsmState zsm_getstate(const uint8_t priority) {
   struct ZsmState state;
-  __attribute__((leaf)) asm volatile(
+  __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_GETSTATE) "\n"
                                 "php\n"    // P -> stack
                                 "ta%2\n"   // A -> X -> loopcnt_lo
@@ -154,6 +169,26 @@ struct ZsmState zsm_getstate(const uint8_t priority) {
       : "x"(priority)
       : "p");
   return state;
+}
+
+// Inputs: .X = priority, .A .Y = (lo hi) new tick rate
+// Outputs: none
+void zsm_setrate(const uint8_t priority, const uint16_t rate) {
+  __attribute__((leaf)) __asm__ volatile(
+      "jsr " xstr(ZSM_SETRATE) "\n" ::"x"(priority),
+      "a"((uint8_t)(rate & 0xFF)), "y"((uint8_t)((rate >> 8) & 0xFF))
+      : "p");
+}
+
+// Inputs: .X = priority
+// Outputs: A .Y = (lo hi) tick rate
+uint16_t zsm_getrate(const uint8_t priority) {
+  uint8_t result_hi, result_lo;
+  __attribute__((leaf)) __asm__ volatile("jsr " xstr(ZSM_GETRATE) "\n"
+                                         : "=a"(result_lo), "=y"(result_hi)
+                                         : "x"(priority)
+                                         : "p");
+  return (((uint16_t)result_hi) << 8) | result_lo;
 }
 
 // Generated with `xxd -i ../lib/zsmkit-8c00.bin`.

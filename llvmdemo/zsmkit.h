@@ -35,10 +35,8 @@
 
 #pragma once
 
+#ifndef __cplusplus
 #include <stdint.h>
-
-#ifdef __cplusplus
-extern "C" {
 #endif
 
 // Tell zsm_tick what to update
@@ -60,21 +58,16 @@ struct ZsmState {
   };
 };
 
-void zsm_init_engine(const uint8_t bank);
-void zsm_setmem(const uint8_t priority, const uint16_t addr,
-                const uint8_t bank);
-void zsm_tick(const uint8_t what);
-void zsm_play(const uint8_t priority);
-void zsm_stop(const uint8_t priority);
-void zsm_rewind(const uint8_t priority);
-void zsm_close(const uint8_t priority);
-void zsm_setatten(const uint8_t priority, const uint8_t attenuation);
-void zsm_setcb(const uint8_t priority, const uint16_t callback,
-               const uint8_t bank);
-void zsm_clearcb(const uint8_t priority);
-struct ZsmState zsm_getstate(const uint8_t priority);
-
-#ifdef __cplusplus
-}
-#endif
-
+void zsm_init_engine(uint8_t bank);
+void zsm_setmem(uint8_t priority, uint16_t addr, uint8_t bank);
+void zsm_tick(uint8_t what);
+void zsm_play(uint8_t priority);
+void zsm_stop(uint8_t priority);
+void zsm_rewind(uint8_t priority);
+void zsm_close(uint8_t priority);
+void zsm_setatten(uint8_t priority, uint8_t attenuation);
+void zsm_setcb(uint8_t priority, uint16_t callback, uint8_t bank);
+void zsm_clearcb(uint8_t priority);
+void zsm_setrate(uint8_t priority, uint16_t rate);
+uint16_t zsm_getrate(uint8_t priority);
+struct ZsmState zsm_getstate(uint8_t priority);

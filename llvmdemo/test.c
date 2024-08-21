@@ -1,6 +1,13 @@
 #include <cbm.h>
-#include <cstdio>
+#include <stdio.h>
 #include <zsmkit.h>
+
+//
+// Example usage of zsmkit.h
+//
+// This is C23-style but can easily
+// be converted to lower C versions or C++.
+//
 
 // Labelled memory banks ($a000-$bfff)
 enum : uint8_t {
@@ -32,9 +39,9 @@ void load_song(const char *filename) {
   cbm_k_load(LOAD_RAM, (uint8_t *)SONGDATA_ADDR);
 }
 
-int main() {
+int main(void) {
   const char *filename = "BACK_AGAIN.ZSM";
-  printf("Loading %s from disk...\n", filename);
+  printf("Loading \"%s\" to bank %d ...\n", filename, SONGDATA_BANK);
   load_song(filename);
 
   // Set up ZSMKit
@@ -43,7 +50,7 @@ int main() {
   zsm_setmem(PRIORITY, SONGDATA_ADDR, SONGDATA_BANK);
 
   // Check state
-  auto state = zsm_getstate(PRIORITY);
+  struct ZsmState state = zsm_getstate(PRIORITY);
   printf("Playable = %d\n", !state.not_playable);
   printf("Playing  = %d\n", state.playing);
   if (state.not_playable) {
