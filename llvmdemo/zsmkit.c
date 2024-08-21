@@ -59,8 +59,6 @@
 #define str(s) #s
 
 // Inputs: .A = RAM bank to assign to ZSMKit
-// This routine must be called once before any other library routines are called
-// in order to initialize the state of the engine.
 void zsm_init_engine(const uint8_t bank) {
   __attribute__((leaf)) __asm__ volatile(
       "jsr " xstr(ZSM_INIT_ENGINE) "\n" ::"a"(bank)
@@ -68,10 +66,6 @@ void zsm_init_engine(const uint8_t bank) {
 }
 
 // Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
-// Prior to calling, set the active RAM bank ($00) to the bank where the ZSM
-// data starts. This function sets up the song pointers and parses the header
-// based on a ZSM that was previously loaded into RAM. If the song is deemed
-// valid, it marks the priority slot as playable.
 void zsm_setmem(const uint8_t priority, const uint16_t addr,
                 const uint8_t bank) {
   RAM_BANK = bank;
@@ -138,18 +132,6 @@ void zsm_clearcb(const uint8_t priority) {
 
 // Inputs: .X = priority
 // Outputs: .C = playing, Z = not playable, .A .Y = (lo hi) loop counter
-// bne 1f
-//   ta%2       // A -> X -> loopcnt_lo
-//   lda #0     // A = 1 if Z is set
-//   sta %3     // A -> r -> not_playable
-//   rol        // C -> A -> playing
-//   bpl 2f     // Unconditional branch
-// .1:
-//   ta%2       // A -> X -> loopcnt_lo
-//   lda #1     // A = 1 if Z is set
-//   sta %3     // A -> r -> not_playable
-//   sbc #0     // C -> A -> playing
-// .2:
 struct ZsmState zsm_getstate(const uint8_t priority) {
   struct ZsmState state;
   __attribute__((leaf)) __asm__ volatile(
@@ -189,6 +171,13 @@ uint16_t zsm_getrate(const uint8_t priority) {
                                          : "x"(priority)
                                          : "p");
   return (((uint16_t)result_hi) << 8) | result_lo;
+}
+
+// Inputs: .X = priority, .C = whether to loop
+void zsm_setloop(const uint8_t priority, const bool loop) {
+  __attribute__((leaf)) __asm__ volatile(
+      "jsr " xstr(ZSM_SETLOOP) "\n" ::"x"(priority), "c"(loop)
+      : "a", "y", "p");
 }
 
 // Generated with `xxd -i ../lib/zsmkit-8c00.bin`.

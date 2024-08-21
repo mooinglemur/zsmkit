@@ -58,10 +58,15 @@ int main(void) {
     return 0;
   }
 
+  zsm_setloop(PRIORITY, true);
+
   printf("Start playing.\n");
   zsm_play(PRIORITY);
   state = zsm_getstate(PRIORITY);
-  printf("Playing  = %d\n", state.playing);
+  printf("Playing   = %d\n", state.playing);
+  printf("Org. rate = %d\n", zsm_getrate(PRIORITY));
+  zsm_setrate(PRIORITY, 59);
+  printf("New rate  = %d\n", zsm_getrate(PRIORITY));
 
   while (true) {
     waitvsync();

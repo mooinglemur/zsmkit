@@ -69,5 +69,6 @@ void zsm_setatten(uint8_t priority, uint8_t attenuation);
 void zsm_setcb(uint8_t priority, uint16_t callback, uint8_t bank);
 void zsm_clearcb(uint8_t priority);
 void zsm_setrate(uint8_t priority, uint16_t rate);
+void zsm_setloop(uint8_t priority, bool loop);
 uint16_t zsm_getrate(uint8_t priority);
 struct ZsmState zsm_getstate(uint8_t priority);
