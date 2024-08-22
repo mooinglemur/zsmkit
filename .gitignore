@@ -8,4 +8,7 @@ OLD/
 *.PRG
 *.BIN
 *.img
+*.prg
+*.elf
+*~
 lib/
