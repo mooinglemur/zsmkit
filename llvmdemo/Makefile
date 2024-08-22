@@ -2,17 +2,17 @@
 CC       = mos-cx16-clang
 CXX      = mos-cx16-clang++
 CFLAGS   = -Oz -flto -I . -Wall -Wextra -std=c23
-CXXFLAGS = -Oz -flto -I . -Wall -Wextra
 LDFLAGS  = -T link.ld
 TEST     = test.prg
 ZSMKIT   = zsmkit.o
+#DEFINES += -D ZSMKIT_EMBED_BINARY
 
 # Default target
 all: $(TEST)
 
 # Compile zsmkit.o
 $(ZSMKIT): zsmkit.c zsmkit.h
-	$(CC) $(CFLAGS) -c zsmkit.c -o $(ZSMKIT)
+	$(CC) $(CFLAGS) -c zsmkit.c -o $(ZSMKIT) $(DEFINES)
 
 # Compile and link the target
 $(TEST): test.c $(ZSMKIT)
