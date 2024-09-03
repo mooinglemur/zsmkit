@@ -464,7 +464,7 @@ zsmkit_clearisr:
 ; Preserves: (none)
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
-; 
+;
 ; Default ISR set by zsmkit_setisr
 _isr:
 	lda #0
@@ -2504,13 +2504,13 @@ val:
 	ldx prio
 	bra cont
 .endif
-memory:	
+memory:
 	lda zsm_start_l,x
 	sta zsm_ptr_l,x
 	lda zsm_start_h,x
 	sta zsm_ptr_h,x
 	lda zsm_start_bank,x
-	sta zsm_ptr_bank,x	
+	sta zsm_ptr_bank,x
 cont:
 	stz delay_f,x
 	stz delay_l,x
@@ -2657,20 +2657,23 @@ no_pcm_halt:
 	rts
 .endproc
 
-
 ;...........
 ; zsm_play :
 ;============================================================================
 ; Arguments: .X = priority
 ; Returns: (none)
 ; Preserves: (none)
-; Allowed in interrupt handler: no
+; Allowed in interrupt handler: with caveats
 ; ---------------------------------------------------------------------------
+;
+; This routine is safe to call within an interrupt handler
+; (such as within a ZSM callback)
+; as long as ZSMKIT_ENABLE_STREAMING is not enabled in the build
 ;
 ; Sets up the song to start playing back on the next tick if
 ; the song is valid and ready to play
 .proc zsm_play: near
-	PRESERVE_BANK_CLOBBER_A_P
+	PRESERVE_BANK_STACK_CLOBBER_A_P
 	lda prio_active,x
 	bne exit ; already playing
 
@@ -2691,11 +2694,11 @@ no_pcm_halt:
 	cmp #$A0
 	bcc exit
 ok:
-	stx prio
 	; prevent interrupt during critical section
 	php
 	sei
 
+	stx prio
 	; check to see if we restore shadow from somewhere active next tick
 	; opm voices
 	ldy times_8,x
@@ -2753,7 +2756,7 @@ nextpsg:
 
 	plp ; end critical section
 exit:
-	RESTORE_BANK
+	RESTORE_BANK_STACK
 	rts
 prio:
 	.byte 0

@@ -22,8 +22,20 @@ ROMBank = 1
 	sta RAMBank
 .endmacro
 
+.macro PRESERVE_BANK_STACK_CLOBBER_A_P
+	lda RAMBank
+	pha
+	lda zsmkit_bank
+	sta RAMBank
+.endmacro
+
 .macro RESTORE_BANK
 	lda saved_bank
+	sta RAMBank
+.endmacro
+
+.macro RESTORE_BANK_STACK
+	pla
 	sta RAMBank
 .endmacro
 
