@@ -1,65 +1,18 @@
 .ifndef __MACROS_INC__
 .define __MACROS_INC__
 
-RAMBank = 0
-ROMBank = 1
-
-.macro PRESERVE_BANK_NO_CLOBBER
-	php
+.macro PRESERVE_ZP_PTR
+	lda PTR+1
 	pha
-	lda RAMBank
-	sta saved_bank
-	lda zsmkit_bank
-	sta RAMBank
-	pla
-	plp
-.endmacro
-
-.macro PRESERVE_BANK_CLOBBER_A_P
-	lda RAMBank
-	sta saved_bank
-	lda zsmkit_bank
-	sta RAMBank
-.endmacro
-
-.macro PRESERVE_BANK_STACK_CLOBBER_A_P
-	lda RAMBank
+	lda PTR
 	pha
-	lda zsmkit_bank
-	sta RAMBank
 .endmacro
 
-.macro RESTORE_BANK
-	lda saved_bank
-	sta RAMBank
-.endmacro
-
-.macro RESTORE_BANK_STACK
+.macro RESTORE_ZP_PTR
 	pla
-	sta RAMBank
-.endmacro
-
-.macro PRESERVE_BANK_NO_CLOBBER_IRQ
-	php
-	pha
-	lda RAMBank
-	sta saved_bank_irq
-	lda zsmkit_bank
-	sta RAMBank
+	sta PTR
 	pla
-	plp
-.endmacro
-
-.macro PRESERVE_BANK_CLOBBER_A_P_IRQ
-	lda RAMBank
-	sta saved_bank_irq
-	lda zsmkit_bank
-	sta RAMBank
-.endmacro
-
-.macro RESTORE_BANK_IRQ
-	lda saved_bank_irq
-	sta RAMBank
+	sta PTR+1
 .endmacro
 
 .endif
