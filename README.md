@@ -1,8 +1,9 @@
 # ZSMKit
 Advanced music and sound effects engine for the Commander X16
 
-Due to bugs in the audio bank routine `psg_write` in earlier ROMs, the minimum earliest Commander X16 ROM release supported is R44.
+The minimum Commander X16 ROM release supported is R44.
 
+This is **ZSMKit v2**. If you're looking for the legacy version, check out the [v1 branch](https://github.com/mooinglemur/zsmkit/tree/v1).
 
 ## Overview
 
@@ -17,8 +18,7 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 
 It also has these features that ZSound currently lacks:
 
-* Playback of ZSM files streamed from open files on SD card (disabled by default, requires editing Makefile to enable)
-* Four playback slots with priorities (0-3)
+* Eight playback slots with priorities (0-7)
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback
 * "Master volume" control for each playback slot
     * Individual voices' master volumes can also be overridden
@@ -36,11 +36,11 @@ The main discussion area for help with ZSMKit is in the [Commander X16 Discord s
 
 ## Priority system
 
-In the code and documentation, a song slot is also known as a **priority**. There are four priorities, numbered from 0 to 3.  
+In the code and documentation, a song slot is also known as a **priority**. There are eight priorities, numbered from 0 to 7.
 
 Priority 0 is the lowest priority, and thus can be interrupted by any other priority. It would typically used for playback of background game music, as an example.  Priority 0 is also the only slot in which LFO parameters are honored (YM2151 registers < $20)
 
-Priorities 1-3 would typically be used for short jingles and sound effects.
+Priorities 1-7 would typically be used for short jingles and sound effects.
 
 When composing/arranging your music and sound effects, keep channel use in mind. For more seamless playback, sound effects are best written to be played on channels that are not used by your main BGM music, or choose channels whose absence in your BGM are less noticeable if they are taken over by the higher priority playback.
 
@@ -48,48 +48,27 @@ In addition, when a song that is currently playing has channels that are restore
 
 The behavior in the previous paragraph is however not a concern on VERA PSG as notes are simply defined by their channel volume. A VERA channel being un-suspended will immediately play sound if the priority on the restored channel calls for it.
 
-## Building and using in your project
+## Using in your project
 
-This library was written for the `cc65` suite.  As of the writing of this documentation, it is geared toward including in assembly language projects.
+ZSMKit is distributed as a binary, meant to be loaded at `$A000` in any available high RAM bank. An include file `"zsmkit.inc"` is available for ca65 and similar assemblers which map the calls to a stable jump table starting at `$A000`.
+
+1. Choose a RAM bank that ZSMKit will live in, switch to that RAM bank and load the `zsmkit-a000.bin` file from disk to $A000.
+2. Set aside 256 bytes of low RAM that ZSMKit is allowed to use.  Activate the ZSMKit RAM bank, and call `zsm_init_engine` with .X .Y (low, high) set to the address of this low RAM region.  A simple solution is to use part of the region between $400 and $7FF.
+3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the assigned ZSMKit bank before calling into the library
+
+## Building from scratch
+
+This requires the `cc65` suite to rebuild.
 
 To build the library, run  
 `make`  
-from the main project directory. This will create `lib/zsmkit.lib`, which you can build into your project.
+from the main project directory. This will create `lib/zsmkit-a000.bin`, which you can load in your project.
 
 You will likely want to include the file `src/zsmkit.inc` into your project as well for the library's label names.
 
-## Alternative builds
+## Calling the library from assembly
 
-For non-ca65/cc65 projects, there is another option. The build can produce binary blobs `lib/8010.bin` and `lib/8030.bin` by calling
-`make incbin`
-One of these files can be included at origin $0810 or $0830 in your project.  The jump table addresses can be found the file `src/zsmkit8010.inc` (or `src/zsmkit8030.inc`).
-
-There is also another binary blob build target `make basicbin` which is predominantly for the BASIC integration.  In order for this build to work, the line which reads `DEFINES += -D ZSMKIT_ENABLE_STREAMING` must be commented out of the `Makefile`.  This disables streaming support, saving about 1.5kB of space.  This target builds `zsmkit-8c00.bin`, which is otherwise functionally the same as the other binary blobs, and can be used for projects other than BASIC.
-
-## Prerequisites
-
-This library requires a custom linker config in order to specify two custom segments.  This documentation assumes you are familiar with creating custom cc65 linker configs.
-
-Specifically, this library requires the `ZSMKITLIB` segment and the `ZSMKITBANK` segment.  The `ZSMKITLIB` **must** be located in low RAM, and the `ZSMKITBANK` segment is meant to point to high RAM. The linker config is only responsible for assembly of the addresses in the lib. The bank that's assigned to zsmkit is chosen at runtime, and ZSMKit assumes that it has full control of that 8k bank.
-
-NOTE: this is an incomplete linker config file, but rather a relevant example of what must be in a custom one.  You can copy the stock cx16.cfg one and make sire it includes the HIRAM region and the two custom segments.
-
-```
-MEMORY {
-    ...
-    MAIN:     file = %O, start = $0801,  size = $96FF;
-    HIRAM:    file = "", start = $A000,  size = $2000;
-    ...
-}
-
-SEGMENTS {
-    ...
-    CODE:       load = MAIN,     type = ro;
-    ZSMKITLIB:  load = MAIN,     type = ro;
-    ZSMKITBANK: load = HIRAM,    type = bss, define = yes;
-    ...
-}
-```
+All of the public API calls start at the beginning of the $A000 space 
 
 ## API Quick Reference
 
@@ -100,42 +79,28 @@ All calls except for `zsm_tick` are meant to be called from the main loop of the
 ---
 #### `zsm_init_engine`
 ```
-Inputs: .A = RAM bank to assign to ZSMKit
+Inputs: .X .Y = (lo hi) Low RAM address of 256 bytes of data that ZSMKit will use for trampolines, the default IRQ handler code, and PCM FIFO-feeding code
 ```
 This routine *must* be called once before any other library routines are called in order to initialize the state of the engine.
 
 ---
+#### `zsm_setbank`
+```
+Inputs: .X = priority, .A = RAM bank
+```
+Call this prior to calling `zsm_setmem`.
+
+This function expects the RAM bank where the ZSM data starts. After calling this routine, call `zsm_setmem` to finish the setup of a priority slot.
+
+---
 #### `zsm_setmem`
 ```
-Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
+Inputs: .X = priority, .A .Y = memory location (lo hi)
+Preparatory routine: `zsm_setbank`
 ```
-Prior to calling, set the active RAM bank ($00) to the bank where the ZSM data starts.
+Prior to calling, call `zsm_setbank` to set the bank where the ZSM data starts.
 
 This function sets up the song pointers and parses the header based on a ZSM that was previously loaded into RAM. If the song is deemed valid, it marks the priority slot as playable.
-
----
-#### `zsm_setfile`
-* *This function requires optional streaming support to be enabled in the build*
-```
-Inputs: .X = priority, .A .Y = pointer (lo hi) in low RAM to null-terminated filename
-```
-This is an alternate song-loading method. It sets up a priority slot to stream a ZSM file from disk (SD card). The file is opened and stays open for as long as the song is playable (i.e. until `zsm_close` is called, or another song is loaded into the priority).  Instead of holding the entire ZSM in memory, it is streamed from the file in small chunks and held in a small ring buffer inside the bank assigned to ZSMKit.
-
-For ZSM files that contain PCM data, the song will play without triggering the PCM events unless `zsm_loadpcm` is called after `zsm_setfile`.
-
-Whenever this method is used to play a song, `zsm_fill_buffers` must be called in the main part of the program in between ticks.
-
-See `zsm_setlfs` for LFN/device/SA defaults that are used by the engine.
-
----
-#### `zsm_loadpcm`
-* *This function requires optional streaming support to be enabled in the build*
-```
-Inputs: .X = priority, .A .Y = memory location (lo hi), $00 = RAM bank
-Outputs: .A .Y = next memory location after end of load, $00 = RAM bank
-```
-
-For streamed ZSM files that have PCM data, this routine can be used to load the PCM data into memory at the specified memory location. This should be done immediately after calling `zsm_setfile` and before `zsm_play`.
 
 ---
 
@@ -143,7 +108,7 @@ For streamed ZSM files that have PCM data, this routine can be used to load the 
 ```
 Inputs: .X = priority
 ```
-Cleans up any file I/O associated with a priority slot (if it's a song in streaming mode) and resets the state of the slot. In either streaming or normal mode, this routine can be used to permanently stop a song's playback.
+Resets the state of the slot. This routine can be used to permanently stop a song's playback.
 
 ---
 
@@ -151,7 +116,7 @@ Cleans up any file I/O associated with a priority slot (if it's a song in stream
 ```
 Inputs: .X = priority
 ```
-Starts playback of a song.  If `zsm_stop` was called, this function continues playback from the point that it was stopped.  If the file is being streamed rather than played back from memory, this routine will ensure that the ring buffer is at least partially filled.
+Starts playback of a song.  If `zsm_stop` was called, this function continues playback from the point that it was stopped.
 
 ---
 #### `zsm_stop`
@@ -176,37 +141,6 @@ Inputs: .X = priority, .A = attenuation value
 Changes the master volume of a priority slot by setting an attenuation value. A value of $00 implies no attenuation (full volume) and a value of $3F is full mute.
 
 Attenuation is set on all active channels for the priority, and will also affect PCM events played on the priority. The YM2151's attenuation (0.75 dB native) is scaled lower so that it matches the 0.5 dB per step of the VERA PSG. PCM attenuation is scaled to 1/4 the input value.
-
----
-
-#### `zsm_fill_buffers`
-* *This function requires optional streaming support to be enabled in the build*
-
-```
-Inputs: none
-```
-
-If you are using the streaming mode of ZSMKit (with `zsm_setfile`), call this routine once per frame/tick from the main loop of the program (not in the interrupt handler!). This will, if necessary, read some data from open files to keep the ring buffers sufficiently primed so that the `zsm_tick` call has sufficient data to process for the tick.
-
----
-#### `zsm_setlfs`
-* *This function requires optional streaming support to be enabled in the build*
-```
-Inputs: .A = lfn/sa, .X = priority, .Y = device
-```
-
-Sets the logical file number, secondary address, and IEC device for a particular priority
-
-Must only be called from main loop routines.
-
-Calling this function is not necessary if you wish to use defaults that have been set at engine init:
-
-```
-Priority 0: lfn/sa 11, device 8
-Priority 1: lfn/sa 12, device 8
-Priority 2: lfn/sa 13, device 8
-Priority 3: lfn/sa 14, device 8
-```
 
 ---
 
@@ -348,11 +282,19 @@ Calling `zsm_init_engine` will reset this value to 60.
 
 ZCM files are PCM data files with an 8-byte header indicating their bit depth, number of channels, and length. In order for ZSMKit to play them, they must be loaded into memory first, and their location in memory given to ZSMKit via the `zcm_setmem` routine. ZSMKit can track up to 32 ZCMs in memory, slots 0-31, though it's likely you'd exhaust high RAM before having that many loaded at once.
 
+#### `zcm_setbank`
+```
+Inputs: .X = slot, .A = RAM bank
+```
+Tells ZSMKit which bank to find a ZCM (PCM sample) image. After calling this routine, call `zcm_setmem` to pass the address to finish setting up the slot.
+
+
 #### `zcm_setmem`
 ```
-Inputs: .X = slot, .A .Y = memory location (lo hi), $00 = RAM bank
+Inputs: .X = slot, .A .Y = memory location (lo hi)
+Preparatory routines: `zcm_setbank`
 ```
-Tells ZSMKit where to find a ZCM (PCM sample) image.  This image has an 8-byte header followed by raw PCM
+Tells ZSMKit what address to find a ZCM (PCM sample) image.  This image has an 8-byte header followed by raw PCM
 
 ---
 #### `zcm_play`
