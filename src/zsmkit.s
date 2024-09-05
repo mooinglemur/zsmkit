@@ -2,58 +2,9 @@
 .include "audio.inc"
 .include "macros.inc"
 
-.import __ZSMKIT_LOWRAM_LOAD__
+.import __ZSMKIT_LOWRAM_LOAD__, __ZSMKIT_LOWRAM_SIZE__
 
 .macpack longbranch
-
-.export zsm_init_engine
-.export zsm_tick
-.export zsm_play
-.export zsm_stop
-.export zsm_close
-.export zsm_setmem
-.export zsm_setatten
-.export zsm_rewind
-.export zsm_setcb
-.export zsm_clearcb
-.export zsm_getstate
-.export zsm_setrate
-.export zsm_getrate
-.export zsm_setloop
-.export zsm_opmatten
-.export zsm_psgatten
-.export zsm_pcmatten
-.export zsm_set_int_rate
-
-.export zcm_setmem
-.export zcm_play
-.export zcm_stop
-
-.export zsmkit_setisr
-.export zsmkit_clearisr
-
-; exports for peeking inside from players, etc
-.export vera_psg_shadow
-.export opm_key_shadow
-.export opm_shadow
-.export pcm_busy
-
-; exports for players (Melodius) to see where
-; the song cursors are
-.export zsm_loop_bank
-.export zsm_loop_l
-.export zsm_loop_h
-
-.export zsm_ptr_bank
-.export zsm_ptr_l
-.export zsm_ptr_h
-
-.export pcm_cur_bank
-.export pcm_cur_l
-.export pcm_cur_h
-
-.export loop_enable
-
 
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
@@ -67,11 +18,9 @@ jmp zsm_play         ; $A006
 jmp zsm_stop         ; $A009
 jmp zsm_rewind       ; $A00C
 jmp zsm_close        ; $A00F
-.repeat 3 ; for expansion
-sec
-rts
-nop
-.endrepeat
+jmp zsm_getloop      ; $A012
+jmp zsm_getptr       ; $A015
+jmp zsm_getksptr     ; $A018
 jmp zsm_setbank      ; $A01B
 jmp zsm_setmem       ; $A01E
 jmp zsm_setatten     ; $A021
@@ -85,11 +34,8 @@ jmp zsm_opmatten     ; $A036
 jmp zsm_psgatten     ; $A039
 jmp zsm_pcmatten     ; $A03C
 jmp zsm_set_int_rate ; $A03F
-.repeat 2 ; for expansion
-sec
-rts
-nop
-.endrepeat
+jmp zsm_getosptr     ; $A042
+jmp zsm_getpsptr     ; $A045
 jmp zcm_setbank      ; $A048
 jmp zcm_setmem       ; $A04B
 jmp zcm_play         ; $A04E
@@ -284,6 +230,8 @@ _ZSM_BSS_END := *
 	php
 	sei
 
+	PRESERVE_ZP_PTR
+
 	; preserve low ram allocation
 	phy
 	phx
@@ -342,22 +290,11 @@ erasedone:
 
 	jsr _copy_and_fixup_low_ram_routines
 
+	RESTORE_ZP_PTR
+
 	plp
 	rts
 .endproc
-
-;...................................
-; _copy_and_fixup_low_ram_routines :
-;============================================================================
-; Arguments: (none)
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-.proc _copy_and_fixup_low_ram_routines: near
-	lda #<__ZSMKIT_LOWRAM_LOAD__
-.endproc
-
 
 ;.............
 ; zsm_setisr :
@@ -373,51 +310,41 @@ zsmkit_setisr:
 	nop
 	php
 	sei
+
+	PRESERVE_ZP_PTR
+
 	lda #$ea
 	sta zsmkit_clearisr ; ungate zsmkit_clearisr
 	lda #$60
 	sta zsmkit_setisr ; gate zsmkit_setisr
 
 	lda lowram
-	clc
-	adc #<(ISRBANK - __ZSMKIT_LOWRAM_LOAD__)
-	sta SISRBANK
+	sta PTR
 	lda lowram+1
-	adc #>(ISRBANK - __ZSMKIT_LOWRAM_LOAD__)
-	sta SISRBANK+1
+	sta PTR
 
-	lda lowram
-	clc
-	adc #<(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	sta SOLDISRP1
-	lda lowram+1
-	adc #>(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	sta SOLDISRP1+1
-
-	lda SOLDISRP1
-	clc
-	adc #1
-	sta SOLDISRP2
-	lda SOLDISRP1+1
-	adc #0
-	sta SOLDISRP2+1
-
+	ldy #<(ISRBANK - __ZSMKIT_LOWRAM_LOAD__)
 	lda X16::Reg::RAMBank
-	sta $ffff
-SISRBANK = * - 2
+	sta (PTR),y
+
+	ldy #<(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
 	lda X16::Vec::IRQVec
-	sta $ffff
-SOLDISRP1 = * - 2
+	sta (PTR),y
+
+	iny
 	lda X16::Vec::IRQVec+1
-	sta $ffff
-SOLDISRP2 = * - 2
+	sta (PTR),y
+
 	lda lowram
 	clc
 	adc #<(_isr - __ZSMKIT_LOWRAM_LOAD__)
 	sta X16::Vec::IRQVec
 	lda lowram+1
-	adc #>(_isr - __ZSMKIT_LOWRAM_LOAD__)
+	adc #0
 	sta X16::Vec::IRQVec+1
+
+	RESTORE_ZP_PTR
+
 	plp
 	rts
 
@@ -475,6 +402,121 @@ ISRBANK = * - 1
 _old_isr:
 	jmp $ffff
 .popseg
+
+;.............
+; zsm_getptr :
+;============================================================================
+; Arguments: .X = priority
+; Returns: If song is playable, returns .X. Y = pointer to song cursor,
+;          .A = bank, and carry clear
+;          If song is not playable, carry is set
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; This routine is mainly for player programs to determine progress
+.proc zsm_getptr: near
+	lda prio_playable,x
+	beq err
+	ldy zsm_ptr_h,x
+	lda zsm_ptr_l,x
+	pha
+	lda zsm_ptr_bank,x
+	plx
+	clc
+	rts
+err:
+	sec
+	rts
+.endproc
+
+;...............
+; zsm_getksptr :
+;============================================================================
+; Arguments: .X = priority
+; Returns: returns .X. Y = pointer to OPM key shadow
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; This routine is mainly for player programs to get the OPM key down/up state
+.proc zsm_getksptr: near
+	lda times_8,x
+	clc
+	adc #<opm_key_shadow
+	tax
+	lda #>opm_key_shadow
+	adc #0
+	tay
+
+	rts
+.endproc
+
+;...............
+; zsm_getosptr :
+;============================================================================
+; Arguments: .X = priority
+; Returns: returns .X. Y = pointer to OPM register shadow
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; This routine is mainly for player programs to get the OPM register state
+.proc zsm_getosptr: near
+	txa
+	clc
+	adc #>opm_shadow
+	tay
+	ldx #<opm_shadow
+	rts
+.endproc
+
+;...............
+; zsm_getpsptr :
+;============================================================================
+; Arguments: .X = priority
+; Returns: returns .X. Y = pointer to PSG register shadow
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; This routine is mainly for player programs to get the PSG register state
+.proc zsm_getpsptr: near
+	lda times_64,x
+	clc
+	adc #<vera_psg_shadow
+	pha
+	lda times_64h,x
+	adc #>vera_psg_shadow
+	tay
+	plx
+
+	rts
+.endproc
+
+;..............
+; zsm_getloop :
+;============================================================================
+; Arguments: .X = priority
+; Returns: If song is playable and looped, returns .X. Y = pointer to song
+;          loop point, .A = bank, and carry clear
+;          If song is not playable or not looped, carry is set
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+; This routine is mainly for player programs to determine progress
+.proc zsm_getloop: near
+	lda prio_playable,x
+	beq err
+	lda loop_enable,x
+	beq err
+	ldy zsm_loop_h
+	lda zsm_loop_l,x
+	pha
+	lda zsm_loop_bank,x
+	plx
+	clc
+	rts
+err:
+	sec
+	rts
+.endproc
 
 
 ;...........
@@ -1296,6 +1338,76 @@ do_bankwrap:
 .endproc
 
 .popseg
+
+;...................................
+; _copy_and_fixup_low_ram_routines :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc _copy_and_fixup_low_ram_routines: near
+	lda lowram
+	tax
+	sta PTR
+	lda lowram+1
+	sta PTR+1
+	ldy #0
+copyloop:
+	lda __ZSMKIT_LOWRAM_LOAD__,y
+	sta (PTR),y
+	iny
+	cpy #<__ZSMKIT_LOWRAM_SIZE__
+	bcc copyloop
+
+	ldx #(selfmod_targets-selfmod_offsets)
+modloop:
+	ldy selfmod_offsets-1,x
+	lda lowram
+	clc
+	adc selfmod_targets-1,x
+	sta (PTR),y
+	iny
+	lda lowram+1
+	adc #0
+	sta (PTR),y
+	dex
+	bne modloop
+
+	rts
+selfmod_offsets:
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 4)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 7)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 10)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_page0 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 4)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 7)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 10)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_page0a - __ZSMKIT_LOWRAM_LOAD__ + 1)
+selfmod_targets:
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+.endproc
+
 
 ;.............
 ; _prio_tick :
@@ -3070,3 +3182,5 @@ pcmrate_slow:
 	.byte $B3,$B5,$B6,$B8,$BA,$BC,$BE,$BF,$C1,$C2,$C4,$C6,$C7,$C9,$CA,$CC
 
 .assert NUM_PRIORITIES <= 16, error, "Memory constraints restrict number of priorities to be <= 16"
+
+.assert __ZSMKIT_LOWRAM_SIZE__ <= 255, error, "Low RAM copy and fixup code assumes ZSMKIT_LOWRAM segment is 255 bytes or smaller in length"
