@@ -3,7 +3,7 @@ Advanced music and sound effects engine for the Commander X16
 
 The minimum Commander X16 ROM release supported is R44.
 
-This is **ZSMKit v2**. If you're looking for the legacy version, check out the [v1 branch](https://github.com/mooinglemur/zsmkit/tree/v1).
+This is **ZSMKit v2**. If you're looking for the legacy version which supports streaming from disk, check out the [v1 branch](https://github.com/mooinglemur/zsmkit/tree/v1).
 
 ## Overview
 
@@ -146,12 +146,12 @@ Attenuation is set on all active channels for the priority, and will also affect
 
 #### `zsm_setcb`
 ```
-Inputs: .X = priority, .A .Y = pointer to callback, $00 = RAM bank
+Inputs: .X = priority, .A .Y = pointer to callback
 ```
 
 Sets up a callback address for ZSMKit to `jsr` into.  The callback is triggered whenever a song loops or ends on its own, or a synchronization message is processed in the ZSM data.
 
-Inside the callback, the RAM bank will be set to whatever bank was active at the time `zsb_setcb` was called.  .X will be set to the priority, .Y will be set to the event type, and .A will be the parameter value.
+Inside the callback, .X will be set to the priority, .Y will be set to the event type, and .A will be the parameter value.
 
 |Y|A|Meaning|
 |-|-|-|
@@ -163,7 +163,7 @@ Inside the callback, the RAM bank will be set to whatever bank was active at the
 
 Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
 
-The callback does *not* need to take care to preserve any registers before returning.
+The callback does *not* need to take care to preserve any registers before returning, but the active RAM and ROM bank must be set to the values they were upon entry.
 
 ZSM sync type 0 note: Furnace tracker can be used to create this type of event by placing the `EExx` effect in any VERA channel. However, please note that this effect will not be exported in ZSMs if placed in a YM2151 channel.  For example, the effect `EE64` will call the callback with Y = $02 and A = $64 at the moment of the event during playback. This can be useful for synchronization of game animations with the music, or for any other scenario when the application needs to do something at a certain point in the music.
 
