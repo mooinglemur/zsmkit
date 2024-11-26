@@ -1,6 +1,7 @@
 .macpack longbranch
 
 .include "x16.inc"
+.include "ascii_charmap.inc"
 
 .segment "LOADADDR"
 .word $0801
@@ -21,11 +22,35 @@
 .segment "BSS"
 oldirq:
 	.res 2
+zsmkit_lowram:
+	.res 256
+
+ZSMKIT_BANK = 1
 
 .segment "STARTUP"
 
 .proc main
-	lda #1
+	lda #ZSMKIT_BANK
+	sta X16::Reg::RAMBank
+	lda #zsmkit_filename_end-zsmkit_filename
+	ldx #<zsmkit_filename
+	ldy #>zsmkit_filename
+	jsr X16::Kernal::SETNAM
+
+	lda #2
+	ldx #8
+	ldy #2
+	jsr X16::Kernal::SETLFS
+
+	ldx #$00
+	ldy #$a0
+	lda #0
+	jsr X16::Kernal::LOAD
+
+	lda #ZSMKIT_BANK
+	sta X16::Reg::RAMBank
+	ldx #<zsmkit_lowram
+	ldy #>zsmkit_lowram
 	jsr zsmkit::zsm_init_engine
 
 	jsr setup_handler
@@ -174,9 +199,12 @@ oldirq:
 
 	jsr X16::Kernal::LOAD
 
+	lda #ZSMKIT_BANK
+	sta X16::Reg::RAMBank
 
 	lda song1+2
-	sta X16::Reg::RAMBank
+	ldx #0
+	jsr zsmkit::zsm_setbank
 
 	lda song1
 	ldy song1+1
@@ -197,11 +225,14 @@ oldirq:
 	jsr X16::Kernal::BASIN
 
 	lda song2+2
-	sta X16::Reg::RAMBank
+	ldx #1
+	jsr zsmkit::zsm_setbank
+
 	lda song2
 	ldy song2+1
 	ldx #1
 	jsr zsmkit::zsm_setmem
+
 	ldx #1
 	jsr zsmkit::zsm_play
 	ldx #1
@@ -210,6 +241,7 @@ oldirq:
 
 	jsr X16::Kernal::PRIMM
 	.byte 13,"YOU SLOWLY APPROACH A CURIOUS ENEMY.",13,0
+	jsr X16::Kernal::BASIN
 ppapproach:
 	wai
 	wai
@@ -266,7 +298,9 @@ ppapproach2:
 	wai
 
 	lda song3+2
-	sta X16::Reg::RAMBank
+	ldx #1
+	jsr zsmkit::zsm_setbank
+
 	lda song3
 	ldy song3+1
 	ldx #1
@@ -294,7 +328,9 @@ ppapproach2:
 	jsr zsmkit::zsm_stop
 
 	lda song6+2
-	sta X16::Reg::RAMBank
+	ldx #1
+	jsr zsmkit::zsm_setbank
+
 	lda song6
 	ldy song6+1
 	ldx #1
@@ -333,7 +369,9 @@ ppapproach2:
 	jsr zsmkit::zsm_setatten
 
 	lda song4+2
-	sta X16::Reg::RAMBank
+	ldx #1
+	jsr zsmkit::zsm_setbank
+
 	lda song4
 	ldy song4+1
 	ldx #1
@@ -357,7 +395,9 @@ ppapproach2:
 	jsr X16::Kernal::BASIN
 
 	lda song5+2
-	sta X16::Reg::RAMBank
+	ldx #0
+	jsr zsmkit::zsm_setbank
+
 	lda song5
 	ldy song5+1
 	ldx #0
@@ -376,7 +416,7 @@ ppapproach2:
 
 	jsr X16::Kernal::BASIN
 
-	sei 
+	sei
 
 	lda oldirq
 	sta X16::Vec::IRQVec
@@ -418,6 +458,9 @@ song5:
 	.byte 0,0,0
 song6:
 	.byte 0,0,0
+zsmkit_filename:
+	.byte "zsmkit-a000.bin"
+zsmkit_filename_end:
 .endproc
 
 .segment "CODE"
@@ -441,7 +484,14 @@ song6:
 .proc irqhandler
 	lda #35
 	sta Vera::Reg::DCBorder
+	lda X16::Reg::RAMBank
+	pha
+	lda #ZSMKIT_BANK
+	sta X16::Reg::RAMBank
 	lda #0
 	jsr zsmkit::zsm_tick
+	pla
+	sta X16::Reg::RAMBank
+	stz Vera::Reg::DCBorder
 	jmp (oldirq)
 .endproc

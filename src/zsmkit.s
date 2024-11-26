@@ -10,7 +10,7 @@ NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
 NUM_OPM_PRIORITIES = 4
 
-PTR = $02 ; temporary ZP used for FETCH call, preserved and restored
+PTR = $02 ; temporary ZP used for indirect addressing, preserved and restored
 
 .segment "JMPTBL"
 jmp zsm_init_engine  ; $A000
@@ -231,16 +231,16 @@ _ZSM_BSS_END := *
 	php
 	sei
 
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0A
+	sta X16::Reg::ROMBank
+
 	PRESERVE_ZP_PTR
 
 	; preserve low ram allocation
 	phy
 	phx
-
-	lda X16::Reg::ROMBank
-	pha
-	lda #$0A
-	sta X16::Reg::ROMBank
 
 	jsr audio_init
 
@@ -976,7 +976,7 @@ tmp_inst:
 ;============================================================================
 ; Arguments: .X = prio
 ; Returns: (none)
-; Preserves: (none)
+; Preserves: .X
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
 .proc _finalize_pcm_table: near
@@ -1340,76 +1340,6 @@ do_bankwrap:
 
 .popseg
 
-;...................................
-; _copy_and_fixup_low_ram_routines :
-;============================================================================
-; Arguments: (none)
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-.proc _copy_and_fixup_low_ram_routines: near
-	lda lowram
-	tax
-	sta PTR
-	lda lowram+1
-	sta PTR+1
-	ldy #0
-copyloop:
-	lda __ZSMKIT_LOWRAM_LOAD__,y
-	sta (PTR),y
-	iny
-	cpy #<__ZSMKIT_LOWRAM_SIZE__
-	bcc copyloop
-
-	ldx #(selfmod_targets-selfmod_offsets)
-modloop:
-	ldy selfmod_offsets-1,x
-	lda lowram
-	clc
-	adc selfmod_targets-1,x
-	sta (PTR),y
-	iny
-	lda lowram+1
-	adc #0
-	sta (PTR),y
-	dex
-	bne modloop
-
-	rts
-selfmod_offsets:
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 4)
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 7)
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 10)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_page0 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 4)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 7)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 10)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_page0a - __ZSMKIT_LOWRAM_LOAD__ + 1)
-selfmod_targets:
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-.endproc
-
-
 ;.............
 ; _prio_tick :
 ;============================================================================
@@ -1460,6 +1390,8 @@ memory:
 
 note_loop:
 	jsr getzsmbyte
+GETZSMBYTEA = * -2
+	ora #0
 	bpl isdata
 	cmp #$80 ; eod?
 	beq iseod
@@ -1472,7 +1404,7 @@ note_loop:
 	bcc nextnote
 	inc delay_h,x
 nextnote:
-	jsr advanceptr	
+	jsr advanceptr
 	bcs error
 	lda delay_h,x
 	bmi note_loop
@@ -1497,6 +1429,7 @@ isdata:
 	jsr advanceptr
 	bcs plaerror
 	jsr getzsmbyte
+GETZSMBYTEB = * -2
 	plx
 	sta vera_psg_shadow,x ; operand is overwritten at sub entry
 PS = *-2
@@ -1516,6 +1449,7 @@ isext:
 	jsr advanceptr
 	bcs error
 	jsr getzsmbyte
+GETZSMBYTEC = * -2
 	cmp #$40
 	jcc ispcm
 	cmp #$80
@@ -1536,10 +1470,14 @@ ischip: ; external chip, ignore
 isopm:
 	and #$3f
 	tay
+	lda prio
+	cmp #NUM_OPM_PRIORITIES
+	jcs skip_opm
 opmloop:
 	jsr advanceptr
 	bcs error
 	jsr getzsmbyte
+GETZSMBYTED = * -2
 	stx prio
 	cmp #$01 ; OPM TEST register
 	bne :+
@@ -1549,9 +1487,8 @@ TEST_REGISTER = * - 1
 	jsr advanceptr
 	jcs plaerror
 	jsr getzsmbyte
+GETZSMBYTEE = * -2
 	plx
-	cpx #NUM_OPM_PRIORITIES
-	bcs back2ymblock
 	sta opm_shadow,x ; operand is overwritten at sub entry
 OS = *-1
 	phy
@@ -1588,6 +1525,7 @@ issync:
 	jsr advanceptr
 	bcs plaerror2
 	jsr getzsmbyte
+GETZSMBYTEF = * -2
 	cmp #$02
 	bcc isgensync
 	jsr advanceptr
@@ -1615,6 +1553,7 @@ isgensync:
 	jsr advanceptr
 	bcs plaerror2
 	jsr getzsmbyte
+GETZSMBYTEG = * -2
 	ldx prio
 	jsr _callback
 	bra endsync
@@ -1624,6 +1563,8 @@ ispcm:
 	jsr advanceptr
 	bcs plaerror2
 	jsr getzsmbyte
+GETZSMBYTEH = * -2
+	ora #0
 	beq ispcmctrl
 	cmp #1
 	beq ispcmrate
@@ -1631,6 +1572,7 @@ ispcm:
 	jsr advanceptr
 	bcs error2
 	jsr getzsmbyte
+GETZSMBYTEI = * -2
 	jsr _pcm_trigger_instrument
 endpcm:
 	pla ; restore count
@@ -1646,6 +1588,7 @@ ispcmctrl:
 	jsr advanceptr
 	bcs error2
 	jsr getzsmbyte
+GETZSMBYTEJ = * -2
 	sta pcm_ctrl_shadow,x
 	cpx pcm_prio
 	bne endpcm
@@ -1671,23 +1614,12 @@ ispcmrate:
 	jsr advanceptr
 	bcs error2
 	jsr getzsmbyte
+GETZSMBYTEK = * -2
 	sta pcm_rate_shadow,x
 	cpx pcm_prio
 	bne endpcm
 	sta Vera::Reg::AudioRate
 	bra endpcm
-
-getzsmbyte:
-	lda zsm_ptr_bank,x
-	phx
-	phy
-	tax
-	lda #PTR
-	ldy #0
-	jsr X16::Kernal::FETCH
-	ply
-	plx
-	rts
 advanceptr:
 	inc PTR
 	bne :+
@@ -1704,6 +1636,12 @@ advanceptr:
 	lda PTR
 	sta zsm_ptr_l,x
 	rts
+skip_opm:
+	jsr advanceptr
+	jsr advanceptr
+	dey
+	bne skip_opm
+	jmp nextnote
 
 _psg_write:
 	sta @PSGAVAL ; preserve value
@@ -1750,6 +1688,136 @@ _ym_write:
 .endproc
 
 TEST_REGISTER = _prio_tick::TEST_REGISTER
+
+.pushseg
+.segment "ZSMKIT_LOWRAM"
+
+getzsmbyte:
+	lda zsm_ptr_bank,x
+fetchbyte:
+	phx
+	ldx X16::Reg::RAMBank
+	phx
+	sta X16::Reg::RAMBank
+	lda (PTR)
+	plx
+	stx X16::Reg::RAMBank
+	plx
+	rts
+.popseg
+
+;...................................
+; _copy_and_fixup_low_ram_routines :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc _copy_and_fixup_low_ram_routines: near
+	lda lowram
+	tax
+	sta PTR
+	lda lowram+1
+	sta PTR+1
+	ldy #0
+copyloop:
+	lda __ZSMKIT_LOWRAM_LOAD__,y
+	sta (PTR),y
+	iny
+	cpy #<__ZSMKIT_LOWRAM_SIZE__
+	bcc copyloop
+
+	ldx #(selfmod_targets-selfmod_offsets)
+modloop:
+	ldy selfmod_offsets-1,x
+	lda lowram
+	clc
+	adc selfmod_targets-1,x
+	sta (PTR),y
+	iny
+	lda lowram+1
+	adc #0
+	sta (PTR),y
+	dex
+	bne modloop
+
+	ldy #1 ; for the sta (PTR),y in the loops below
+	ldx #(getzsmbyte_fixups_h-getzsmbyte_fixups_l)
+gzbloop:
+	lda getzsmbyte_fixups_l-1,x
+	sta PTR
+	lda getzsmbyte_fixups_h-1,x
+	sta PTR+1
+	clc
+	lda #<(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	adc lowram
+	sta (PTR)
+	lda #>(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	adc lowram+1
+	sta (PTR),y
+	dex
+	bne gzbloop
+
+	ldx #(fetchbyte_fixups_h-fetchbyte_fixups_l)
+fbloop:
+	lda fetchbyte_fixups_l-1,x
+	sta PTR
+	lda fetchbyte_fixups_h-1,x
+	sta PTR+1
+	clc
+	lda #<(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
+	adc lowram
+	sta (PTR)
+	lda #>(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
+	adc lowram+1
+	sta (PTR),y
+	dex
+	bne fbloop
+
+	rts
+selfmod_offsets:
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 4)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 7)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 10)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_page0 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 4)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 7)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 10)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_page0a - __ZSMKIT_LOWRAM_LOAD__ + 1)
+selfmod_targets:
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+getzsmbyte_fixups_l:
+	.lobytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
+	.lobytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK
+getzsmbyte_fixups_h:
+	.hibytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
+	.hibytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK
+fetchbyte_fixups_l:
+	.lobytes FETCHBYTEA
+fetchbyte_fixups_h:
+	.hibytes FETCHBYTEA
+.endproc
+
 
 ;..............
 ; _callback   :
@@ -2692,6 +2760,8 @@ ok:
 	sei
 
 	stx prio
+	cpx #NUM_OPM_PRIORITIES
+	bcs noopm
 	; check to see if we restore shadow from somewhere active next tick
 	; opm voices
 	ldy times_8,x
@@ -2717,6 +2787,7 @@ nextopm:
 
 	; psg voices
 	ldx prio
+noopm:
 	ldy times_16,x
 	ldx #0
 psgloop:
@@ -2779,8 +2850,11 @@ prio:
 ;
 ; Must only be called from main loop routines.
 .proc zsm_setmem: near
+	sta TMPA
 	PRESERVE_ZP_PTR
 
+	lda #$00
+TMPA = * - 1
 	sta PTR
 	sty PTR+1
 
@@ -2964,14 +3038,15 @@ noopm:
 	stz vera_psg_voice_mask+i+8,x
 	ror vera_psg_voice_mask+i+8,x
 .endrepeat
+	ldx prio
 
 	; ZSM tick rate
 	jsr get_next_byte
-	sta tick_rate_l,y
+	sta tick_rate_l,x
 	jsr get_next_byte
-	sta tick_rate_h,y
+	sta tick_rate_h,x
 
-	; eat reerved bytes
+	; eat reserved bytes
 	jsr get_next_byte
 	jsr get_next_byte
 
@@ -2991,7 +3066,6 @@ noopm:
 :
 
 	; finish setup of state
-	ldx prio
 	stz delay_f,x
 	stz delay_l,x
 	stz delay_h,x
@@ -3005,6 +3079,8 @@ noopm:
 	jsr _zero_shadow
 
 	jsr _calculate_speed
+
+	RESTORE_ZP_PTR
 
 	rts
 prio:
@@ -3036,6 +3112,9 @@ tmp1:
 	plx
 	phx
 
+	cpx #NUM_OPM_PRIORITIES
+	bcs end
+
 	lda #0
 	ldy times_8,x
 	ldx #8
@@ -3043,7 +3122,7 @@ tmp1:
 	iny
 	dex
 	bne :-
-
+end:
 	plx
 	rts
 .endproc
@@ -3128,14 +3207,9 @@ tmp3:
 .endproc
 
 get_next_byte:
-	phx
-	phy
-	lda #PTR
-	ldx fetch_bank
-	ldy #0
-	jsr X16::Kernal::FETCH
-	ply
-	plx
+	lda fetch_bank
+	jsr fetchbyte
+FETCHBYTEA = * - 2
 	inc PTR
 	bne gnb2
 	inc PTR+1
