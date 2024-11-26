@@ -782,11 +782,13 @@ end:
 	lda pcm_table_exists,x
 	jpl end
 
+	PRESERVE_ZP_PTR
+
 	lda pcm_busy
 	beq not_busy
 
 	cpx pcm_prio
-	jcc end ; PCM is busy and we are lower priority
+	jcc end_r ; PCM is busy and we are lower priority
 not_busy:
 	lda Vera::Reg::AudioCtrl
 	and #$3f
@@ -843,7 +845,7 @@ TC = *-1
 	sty tmp_inst
 	jsr get_next_byte
 	cmp tmp_inst
-	jne error ; This should be the instrument definition that we asked for
+	jne error_r ; This should be the instrument definition that we asked for
 
 	; here's the geometry byte (bit depth and number of channels)
 	; apply it now
@@ -931,7 +933,7 @@ TC = *-1
 
 	; final calc of loop point
 	lda pcm_islooped,x
-	beq end
+	beq end_r
 
 	lda pcm_cur_l
 	clc
@@ -961,8 +963,12 @@ TC = *-1
 	lda pcm_remain_h
 	sbc pcm_loop_rem_h
 	sta pcm_loop_rem_h
+end_r:
+	RESTORE_ZP_PTR
 end:
 	rts
+error_r:
+	RESTORE_ZP_PTR
 error:
 	stz pcm_busy
 	rts
@@ -1147,6 +1153,7 @@ normal_load:
 	ldy tmp_count+1
 loadit:
 	jsr _load_fifo
+LOADFIFOA = * - 2
 	lda #$80 ; this is self-mod to restore the rate in case we loaded while empty and temporarily set the rate to zero
 RR = *- 1
 	sta Vera::Reg::AudioRate
@@ -1742,38 +1749,22 @@ modloop:
 	dex
 	bne modloop
 
-	ldy #1 ; for the sta (PTR),y in the loops below
-	ldx #(getzsmbyte_fixups_h-getzsmbyte_fixups_l)
-gzbloop:
-	lda getzsmbyte_fixups_l-1,x
+	ldy #1 ; for the sta (PTR),y in the loop below
+	ldx #(fixups_h-fixups_l)
+fuloop:
+	lda fixups_l-1,x
 	sta PTR
-	lda getzsmbyte_fixups_h-1,x
+	lda fixups_h-1,x
 	sta PTR+1
 	clc
-	lda #<(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	lda fixup_targets-1,x
 	adc lowram
 	sta (PTR)
-	lda #>(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	lda #0
 	adc lowram+1
 	sta (PTR),y
 	dex
-	bne gzbloop
-
-	ldx #(fetchbyte_fixups_h-fetchbyte_fixups_l)
-fbloop:
-	lda fetchbyte_fixups_l-1,x
-	sta PTR
-	lda fetchbyte_fixups_h-1,x
-	sta PTR+1
-	clc
-	lda #<(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
-	adc lowram
-	sta (PTR)
-	lda #>(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
-	adc lowram+1
-	sta (PTR),y
-	dex
-	bne fbloop
+	bne fuloop
 
 	rts
 selfmod_offsets:
@@ -1806,16 +1797,26 @@ selfmod_targets:
 	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
 	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
 	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-getzsmbyte_fixups_l:
+fixups_l:
 	.lobytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
-	.lobytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK
-getzsmbyte_fixups_h:
+	.lobytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
+fixups_h:
 	.hibytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
-	.hibytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK
-fetchbyte_fixups_l:
-	.lobytes FETCHBYTEA
-fetchbyte_fixups_h:
-	.hibytes FETCHBYTEA
+	.hibytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
+fixup_targets:
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo - __ZSMKIT_LOWRAM_LOAD__)
 .endproc
 
 
