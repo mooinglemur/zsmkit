@@ -18,7 +18,10 @@ ZSMKit is a ZSM playback library for the Commander X16. It aims to be an alterna
 
 It also has these features that ZSound currently lacks:
 
-* Eight playback slots with priorities (0-7)
+* Eight playback slots with priorities (0-7).
+    * Priority slot 0 supports YM2151 (with LFO usage), PSG, and PCM events.
+    * Priority slots 1-3 support YM2151 (except for LFO usage), PSG, and PCM events
+    * Priority slots 4-7 support PSG and PCM events
 * Multiple simultaneous slot playback, with priority-based channel arbitration and automatic restore of state when higher priorities end playback
 * "Master volume" control for each playback slot
     * Individual voices' master volumes can also be overridden
@@ -40,7 +43,7 @@ In the code and documentation, a song slot is also known as a **priority**. Ther
 
 Priority 0 is the lowest priority, and thus can be interrupted by any other priority. It would typically used for playback of background game music, as an example.  Priority 0 is also the only slot in which LFO parameters are honored (YM2151 registers < $20)
 
-Priorities 1-7 would typically be used for short jingles and sound effects.
+Priorities 1-7 would typically be used for short jingles and sound effects. Priorities 4-7 handle VERA PSG and PCM events but lack support for YM2151 events.
 
 When composing/arranging your music and sound effects, keep channel use in mind. For more seamless playback, sound effects are best written to be played on channels that are not used by your main BGM music, or choose channels whose absence in your BGM are less noticeable if they are taken over by the higher priority playback.
 
@@ -53,8 +56,8 @@ The behavior in the previous paragraph is however not a concern on VERA PSG as n
 ZSMKit is distributed as a binary, meant to be loaded at `$A000` in any available high RAM bank. An include file `"zsmkit.inc"` is available for ca65 and similar assemblers which map the calls to a stable jump table starting at `$A000`.
 
 1. Choose a RAM bank that ZSMKit will live in, switch to that RAM bank and load the `zsmkit-a000.bin` file from disk to $A000.
-2. Set aside 256 bytes of low RAM that ZSMKit is allowed to use.  Activate the ZSMKit RAM bank, and call `zsm_init_engine` with .X .Y (low, high) set to the address of this low RAM region.  A simple solution is to use part of the region between $400 and $7FF.
-3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the assigned ZSMKit bank before calling into the library
+2. Set aside 256 bytes of low RAM that ZSMKit is allowed to use.  Activate the ZSMKit RAM bank, and call `zsm_init_engine` with .X .Y (low, high) set to the address of this low RAM region.  A simple solution is to use part of the region between $400 and $7FF, but you can also designate any other 256 byte region in low ram that is not otherwise in use.
+3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the assigned ZSMKit bank before calling into the library.
 
 ## Building from scratch
 

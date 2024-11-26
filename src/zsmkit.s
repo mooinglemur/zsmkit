@@ -8,6 +8,7 @@
 
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
+NUM_OPM_PRIORITIES = 4
 
 PTR = $02 ; temporary ZP used for FETCH call, preserved and restored
 
@@ -48,16 +49,16 @@ jmp zsmkit_clearisr  ; $A057
 _ZSM_BSS_START := *
 
 ; offset = priority*256
-opm_shadow:             .res NUM_PRIORITIES*256
+opm_shadow:             .res NUM_OPM_PRIORITIES*256
 
 ; offset = (priority * 64) + (register)
 vera_psg_shadow:        .res NUM_PRIORITIES*64
 
 ; offset = (priority * 8) + (voice)
-opm_atten_shadow:       .res NUM_PRIORITIES*8
+opm_atten_shadow:       .res NUM_OPM_PRIORITIES*8
 
 ; offset = (priority * 8) + (voice)
-opm_key_shadow:			.res NUM_PRIORITIES*8
+opm_key_shadow:			.res NUM_OPM_PRIORITIES*8
 
 ; offset = (priority * 16) + (voice)
 vera_psg_atten_shadow:  .res NUM_PRIORITIES*16
@@ -71,7 +72,7 @@ pcm_atten_shadow:       .res NUM_PRIORITIES
 ; is not active, these are zeroed.
 
 ; offset = (priority * 8) + (voice)
-opm_voice_mask:         .res NUM_PRIORITIES*8
+opm_voice_mask:         .res NUM_OPM_PRIORITIES*8
 
 ; offset = (priority * 16) + (voice)
 vera_psg_voice_mask:    .res NUM_PRIORITIES*16
@@ -173,7 +174,7 @@ zcm_mem_l:              .res NUM_ZCM_SLOTS
 zcm_mem_h:              .res NUM_ZCM_SLOTS
 
 ; These arrays contain $FF if the voice is unused or will contain
-; the priority (0-3) of the module that is allowed to use the voice.
+; the priority (0-3/0-7) of the module that is allowed to use the voice.
 ; Other active modules will only feed their shadow instead.
 ;
 ; Forced inhibit of a voice will set this priority to $FE.
@@ -1549,6 +1550,8 @@ TEST_REGISTER = * - 1
 	jcs plaerror
 	jsr getzsmbyte
 	plx
+	cpx #NUM_OPM_PRIORITIES
+	bcs back2ymblock
 	sta opm_shadow,x ; operand is overwritten at sub entry
 OS = *-1
 	phy
@@ -1797,7 +1800,7 @@ nocb:
 	ldx #0
 opmloop:
 	ldy opm_priority,x
-	cpy #NUM_PRIORITIES ; $fe or $ff, most likely
+	cpy #NUM_OPM_PRIORITIES ; $fe or $ff, most likely
 	bcs opmnext
 	lda prio_playable,y
 	beq opmswitch
@@ -1927,7 +1930,7 @@ opmloop:
 
 	ldx voice
 	lda opm_priority,x
-	cmp #NUM_PRIORITIES
+	cmp #NUM_OPM_PRIORITIES
 	bcs opmnext ; this happens immediately after a voice stops but no other song is taking over
 
 	; reshadow all parameters
@@ -2255,6 +2258,8 @@ V1 = * - 1
 
 bounds_checked:
 	stx PRI
+	cpx #NUM_OPM_PRIORITIES
+	bcs end
 
 	lda times_8,x
 	clc
@@ -2287,7 +2292,7 @@ VAL = * - 1
 :	lda VAL
 	sta opm_atten_shadow,y
 OAS = * -2
-
+end:
 	rts
 
 .endproc
@@ -2322,6 +2327,8 @@ end:
 ;
 ; Sets the PSG attenuation value of a channel/prio.  $00 = full volume, $3F = muted
 .proc _psgatten: near
+	cpx #NUM_PRIORITIES
+	bcs end
 	cmp #$3f
 	bcc :+
 	lda #$3f
@@ -2359,6 +2366,7 @@ VAL = * - 1
 :	lda VAL
 	sta vera_psg_atten_shadow,y
 PAS = *-2
+end:
 	rts
 .endproc
 
@@ -2392,6 +2400,8 @@ end:
 ;
 ; Sets the PCM attenuation value of a song.  $00 = full volume, $3F = muted
 .proc _pcmatten: near
+	cpx #NUM_PRIORITIES
+	bcs end
 	ldy #16
 :	dey
 	cmp scalelut,y
@@ -2931,13 +2941,15 @@ nopcm:
 	; FM channel mask
 	jsr get_next_byte
 	ldy prio
+	cpy #NUM_OPM_PRIORITIES
+	bcs noopm
 	ldx times_8,y
 .repeat 8,i
 	lsr
 	stz opm_voice_mask+i,x
 	ror opm_voice_mask+i,x
 .endrepeat
-
+noopm:
 	; PSG channel mask
 	jsr get_next_byte
 	ldx times_16,y
@@ -3181,6 +3193,6 @@ pcmrate_slow:
 	.byte $9A,$9B,$9D,$9E,$A0,$A2,$A3,$A5,$A6,$A8,$AA,$AB,$AD,$AE,$B0,$B1
 	.byte $B3,$B5,$B6,$B8,$BA,$BC,$BE,$BF,$C1,$C2,$C4,$C6,$C7,$C9,$CA,$CC
 
-.assert NUM_PRIORITIES <= 16, error, "Memory constraints restrict number of priorities to be <= 16"
+.assert NUM_PRIORITIES <= 8, error, "Memory constraints restrict number of priorities to be <= 8"
 
 .assert __ZSMKIT_LOWRAM_SIZE__ <= 255, error, "Low RAM copy and fixup code assumes ZSMKIT_LOWRAM segment is 255 bytes or smaller in length"
