@@ -1723,7 +1723,6 @@ fetchbyte:
 ; ---------------------------------------------------------------------------
 .proc _copy_and_fixup_low_ram_routines: near
 	lda lowram
-	tax
 	sta PTR
 	lda lowram+1
 	sta PTR+1
