@@ -241,7 +241,6 @@ ZSMKIT_BANK = 1
 
 	jsr X16::Kernal::PRIMM
 	.byte 13,"YOU SLOWLY APPROACH A CURIOUS ENEMY.",13,0
-	jsr X16::Kernal::BASIN
 ppapproach:
 	wai
 	wai
