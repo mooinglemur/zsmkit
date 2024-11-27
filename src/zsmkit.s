@@ -325,13 +325,13 @@ zsmkit_setisr:
 	lda lowram
 	sta PTR
 	lda lowram+1
-	sta PTR
+	sta PTR+1
 
 	ldy #<(ISRBANK - __ZSMKIT_LOWRAM_LOAD__)
 	lda X16::Reg::RAMBank
 	sta (PTR),y
 
-	ldy #<(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	ldy #<((_old_isr + 1) - __ZSMKIT_LOWRAM_LOAD__)
 	lda X16::Vec::IRQVec
 	sta (PTR),y
 
