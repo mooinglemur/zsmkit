@@ -5,7 +5,7 @@
 %zeropage basicsafe
 
 ;; Proof Of Concept ZSM player using zsmkit v2 by MooingLemur
-;; zsmkit is hardcoded in the module import above
+;; zsmkit bank is hardcoded in the module import above
 main {
 	ubyte[255] zsmkit_lowram
 
