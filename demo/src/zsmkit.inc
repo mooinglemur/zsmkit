@@ -28,3 +28,4 @@ zcm_play         := $A04E
 zcm_stop         := $A051
 zsmkit_setisr    := $A054
 zsmkit_clearisr  := $A057
+zsmkit_version   := $A05A

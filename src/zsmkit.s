@@ -6,6 +6,8 @@
 
 .macpack longbranch
 
+ZSMKIT_VERSION = $0200
+
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
 NUM_OPM_PRIORITIES = 4
@@ -43,6 +45,7 @@ jmp zcm_play         ; $A04E
 jmp zcm_stop         ; $A051
 jmp zsmkit_setisr    ; $A054
 jmp zsmkit_clearisr  ; $A057
+jmp zsmkit_version   ; $A05A
 
 
 .segment "ZSMKITBSS"
@@ -403,6 +406,21 @@ ISRBANK = * - 1
 _old_isr:
 	jmp $ffff
 .popseg
+
+;..............
+; zsm_version :
+;============================================================================
+; Arguments: (none)
+; Returns: .A = major version
+;          .X = minorversion
+; Preserves: .Y
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+.proc zsmkit_version: near
+	lda #>ZSMKIT_VERSION
+	ldx #<ZSMKIT_VERSION
+	rts
+.endproc
 
 ;.............
 ; zsm_getptr :

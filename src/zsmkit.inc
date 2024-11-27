@@ -32,3 +32,4 @@ zcm_play         = $A04E ; PER-SLOT: play ZCM (PCM)
 zcm_stop         = $A051 ; GLOBAL: cancel ZCM playback
 zsmkit_setisr    = $A054 ; GLOBAL: install a default interrupt handler
 zsmkit_clearisr  = $A057 ; GLOBAL: restore the previous interrupt handler
+zsmkit_version   = $A05A ; GLOBAL: get the ZSMKit version

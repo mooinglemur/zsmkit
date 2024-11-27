@@ -346,3 +346,11 @@ Inputs: none
 ```
 This routine removes the interrupt service routine that was injected by `zsmkit_setisr`
 
+---
+#### `zsmkit_version`
+```
+Inputs: none
+Outputs: .A = major version, .X = minor version
+```
+This returns the ZSMKit version.  Even-numbered minor versions are releases. Odd-numbered minor-versions are in development.
+
