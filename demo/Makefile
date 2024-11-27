@@ -18,7 +18,7 @@ EXE		:= $(call UC,$(PROJECT).PRG)
 SDCARD	:= ./sdcard.img
 MAPFILE := ./$(PROJECT).map
 SYMFILE := ./$(PROJECT).sym
-LIBRARY := ../lib/zsmkit.lib
+LIBRARY := ../lib/zsmkit-a000.bin
 
 default: all
 
@@ -28,7 +28,7 @@ $(LIBRARY):
 	cd .. && make
 
 $(EXE): $(OBJS) $(CONFIG)
-	$(LD) $(LDFLAGS) $(OBJS) -m $(MAPFILE) -Ln $(SYMFILE) $(LIBRARY) -o $@ 
+	$(LD) $(LDFLAGS) $(OBJS) -m $(MAPFILE) -Ln $(SYMFILE) -o $@ 
 
 $(OBJ)/%.o: $(SRC)/%.s | $(OBJ)
 	$(AS) $(ASFLAGS) $< -o $@
@@ -42,6 +42,7 @@ $(SDCARD): $(EXE)
 	parted -s $(SDCARD) mklabel msdos mkpart primary fat32 2048s -- -1
 	mformat -i $(SDCARD)@@1M -v $(call UC,$(PROJECT)) -F
 	mcopy -i $(SDCARD)@@1M -o -m $(EXE) ::
+	mcopy -i $(SDCARD)@@1M -o -m $(LIBRARY) ::
 	mcopy -i $(SDCARD)@@1M -o -m *.ZSM ::
 
 .PHONY: clean run
