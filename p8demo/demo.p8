@@ -22,7 +22,11 @@ main {
 	}
 
 	sub setup_isr() {
-		zsmkit.zsmkit_setisr()
+		;; You could use zsmkit.zsmkit_setisr() and be done with it
+		;; but here's an example of a custom ISR.
+		;; Note that jsrfar is unsafe to call in a handler, so the ISR
+		;; uses zsmkit.zsm_tick_isr() with a manual bank change
+		sys.set_irq(&irq.handler)
 	}
 
 	sub play_music() {
@@ -43,5 +47,18 @@ main {
 			txt.print(":")
 			txt.print_uwhex(zsmptr, false)
 		}
+	}
+}
+
+irq {
+	sub handler() -> bool {
+		ubyte savebank
+
+		savebank = cx16.getrambank()
+		cx16.rambank(zsmkit.ZSMKitBank)
+		zsmkit.zsm_tick_isr(0) ; NOTE that zsm_tick() is not allowed in a handler
+		cx16.rambank(savebank)
+
+		return true
 	}
 }
