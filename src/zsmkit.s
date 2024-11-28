@@ -234,12 +234,12 @@ _ZSM_BSS_END := *
 	php
 	sei
 
+	PRESERVE_ZP_PTR
+
 	lda X16::Reg::ROMBank
 	pha
 	lda #$0A
 	sta X16::Reg::ROMBank
-
-	PRESERVE_ZP_PTR
 
 	; preserve low ram allocation
 	phy
