@@ -212,6 +212,9 @@ fetch_bank:              .res 1
 ; low RAM region provided by the user to copy the ISR and PCM code to.
 lowram:                  .res 2
 
+; tick-preserved ZP state
+zp_preserve_tick:        .res 2
+
 _ZSM_BSS_END := *
 
 
@@ -220,7 +223,8 @@ _ZSM_BSS_END := *
 ; zsm_init_engine :
 ;============================================================================
 ; Arguments: .X .Y address of low RAM reservation that ZSMKit can use
-;            (FIXME: how many bytes are needed?)
+;            at last check, we use 219 bytes for this, and our limit is 255
+;            (could be made 256), so asking for a page is reasonable.
 ; Returns: (none)
 ; Preserves: .P
 ; Allowed in interrupt handler: no
@@ -556,7 +560,7 @@ err:
 .proc zsm_tick: near
 	sta DOX
 
-	PRESERVE_ZP_PTR
+	PRESERVE_ZP_PTR_TICK
 
 	lda X16::Reg::ROMBank
 	sta R1
@@ -621,7 +625,7 @@ C1 = *-1
 R1 = *-1
 	sta X16::Reg::ROMBank
 
-	RESTORE_ZP_PTR
+	RESTORE_ZP_PTR_TICK
 
 	rts
 prio:
@@ -1534,7 +1538,7 @@ islooped:
 :	lda loop_number_l,x
 	ldy #$01
 	jsr _callback
-	; if it's memory, we just repoint the pointer
+	; repoint the pointer
 	lda zsm_loop_bank,x
 	sta zsm_ptr_bank,x
 	lda zsm_loop_l,x
@@ -1573,7 +1577,7 @@ SK = * -1
 	sta opm_key_shadow,x
 	bra back2ymblock
 isgensync:
-	adc #2 ; sync message 2 or 3
+	adc #2 ; sync message 2 or 3, arriving after bcc so carry is clear
 	tay
 	jsr advanceptr
 	bcs plaerror2
@@ -1852,17 +1856,32 @@ fixup_targets:
 	bpl nocb
 	phx
 	pha
+
 	lda callback_addr_l,x
 	sta CBL
 	lda callback_addr_h,x
 	sta CBH
+
+	RESTORE_ZP_PTR_TICK
 	pla
 
 	jsr $ffff
 CBL = * - 2
 CBH = * - 1
 
+	PRESERVE_ZP_PTR_TICK
+
 	plx
+
+	; IMPORTANT: be aware of this state-restoring shortcut.
+	; All calls to _callback happen from within the tick
+	; where PTR is the song data pointer, so this always does
+	; the right thing for now.  If _callback is called for
+	; any different reason, we need to revisit this.
+	lda zsm_ptr_l,x
+	sta PTR
+	lda zsm_ptr_h,x
+	sta PTR+1
 nocb:
 	rts
 .endproc
