@@ -1384,6 +1384,7 @@ do_bankwrap:
 	lda prio_active,x
 	beq exit
 
+	stx prio
 	; subtract the delay, if we go negative we loop until we accumulate enough
 	; delay to go positive
 	lda delay_f,x
@@ -1453,7 +1454,6 @@ isdata:
 	beq isext
 	bcs isopm
 	; is psg
-	stx prio
 	pha
 	jsr advanceptr
 	bcs plaerror
@@ -1507,7 +1507,6 @@ opmloop:
 	bcs error
 	jsr getzsmbyte
 GETZSMBYTED = * -2
-	stx prio
 	cmp #$01 ; OPM TEST register
 	bne :+
 	lda #$01 ; Translated TEST register - changed to 9 for OPP
@@ -1583,11 +1582,9 @@ isgensync:
 	bcs plaerror2
 	jsr getzsmbyte
 GETZSMBYTEG = * -2
-	ldx prio
 	jsr _callback
 	bra endsync
 ispcm:
-	ldx prio
 	pha ; save count
 	jsr advanceptr
 	bcs plaerror2
@@ -1603,6 +1600,7 @@ GETZSMBYTEH = * -2
 	jsr getzsmbyte
 GETZSMBYTEI = * -2
 	jsr _pcm_trigger_instrument
+	ldx prio
 endpcm:
 	pla ; restore count
 	dec
@@ -2042,6 +2040,7 @@ opmloop:
 	ldy voice
 	ldx opm_priority,y
 
+	; carry is clear from bcs test above
 	lda times_8,x
 	adc #<opm_atten_shadow
 	sta OASR
@@ -2049,7 +2048,7 @@ opmloop:
 	adc #0
 	sta OASR+1
 
-	lda opm_priority,y
+	txa
 
 	clc
 	adc #>opm_shadow
