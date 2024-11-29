@@ -2060,9 +2060,9 @@ opmloop:
 	; shadow for our prio if it's in voice 7
 	cpy #7
 	bne not7
-	lda opm_shadow+$0f
-OH7 = * - 1
 	ldx #$0f
+	lda opm_shadow,x
+OH7 = * - 1
 	jsr ym_write
 
 not7:
