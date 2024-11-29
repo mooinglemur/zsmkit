@@ -3,65 +3,74 @@
 This example uses a binary blob of ZSMKit loaded at the end of low RAM. It allows for uninterrupted playback during your BASIC program.
 
 ```BASIC
-10 REM SET $8C00 AS TOP OF BASIC RAM. THIS IS WHERE ZSMKIT LIB WILL GO
-20 POKE$30F,1:SYS$FF99 : REM FETCH BANK COUNT IN ".A" REGISTER
-30 POKE$30D,$00:POKE$30E,$8C:POKE$30F,0:SYS$FF99
-40 CLR: REM CLEAR VARIABLES, WHICH RE-READS MEMTOP
-50 BLOAD"ZSMKIT8C00.BIN",8,1,$8C00 : REM LOAD ZSMKIT LIB
-60 REM INITIALIZE ZSMKIT
-70 POKE$30C,1 : REM RAM BANK 1 IS GIVEN TO ZSMKIT
-80 SYS$8C00 : REM ZSM-INIT-ENGINE
-90 REM SET UP THE DEFAULT INTERRUPT HANDLER
-100 SYS$8C54 : REM ZSMKIT-SETISR
-110 REM NOW ZSMKIT IS ALL SET UP TO PLAY MUSIC
-120 REM LOAD THE DEFAULT SONG. ZSMKIT OWNS BANK 1, SO LOAD SONG
-130 BLOAD"CANYON.ZSM",8,2,$A000 : REM STARTING IN BANK 2
-140 REM NOW TELL ZSMKIT WHERE THE SONG LIVES
-150 REM USE ZSMKIT PRIORITY (SLOT) 0
-160 BANK 2:POKE$30D,0:POKE$30C,$00:POKE$30E,$A0
-170 SYS$8C1E : REM ZSM-SETMEM
-180 REM NOW WE'RE CLEAR TO START SONG PLAYBACK
-190 POKE$30D,0 : REM PRIORITY (SLOT) 0
-200 SYS$8C06 : REM ZSM-PLAY
-210 PRINT "TO STOP SONG TYPE: RUN 500"
-220 PRINT "SONG DRIVER WILL STAY RESIDENT"
-230 END
-500 POKE$30D,0 : REM PRIORITY (SLOT) 0
-510 SYS$8C09 : REM ZSM-STOP
-520 PRINT "TO CONTINUE SONG TYPE: RUN 190"
-530 END
+10 BLOAD"ZSMKITA000.BIN",8,1,$A000 : REM LOAD ZSMKIT LIB
+20 REM INITIALIZE ZSMKIT
+30 BANK 1
+40 POKE$30D,$00 : REM LOW RAM REGION $400-$4FF GIVEN TO ZSMKIT
+50 POKE$30E,$04 : REM LOW RAM REGION $400-$4FF GIVEN TO ZSMKIT
+60 SYS$A000 : REM ZSM-INIT-ENGINE
+70 REM SET UP THE DEFAULT INTERRUPT HANDLER
+80 SYS$A054 : REM ZSMKIT-SETISR
+90 REM NOW ZSMKIT IS ALL SET UP TO PLAY MUSIC
+100 REM LOAD THE DEFAULT SONG. ZSMKIT OWNS BANK 1, SO LOAD SONG
+110 BLOAD"CANYON.ZSM",8,2,$A000 : REM STARTING IN BANK 2
+120 REM NOW TELL ZSMKIT WHERE THE SONG LIVES
+130 REM USE ZSMKIT PRIORITY (SLOT) 0
+140 BANK 1
+150 POKE $30C,2:POKE $30D,0:SYS $A01B : REM ZSM-SETBANK
+160 POKE $30C,$00:POKE $30E,$A0:POKE $30D,0 : SYS $A01E : REM ZSM-SETMEM
+170 REM NOW WE'RE CLEAR TO START SONG PLAYBACK
+180 POKE$30D,0 : REM PRIORITY (SLOT) 0
+190 SYS$A006 : REM ZSM-PLAY
+200 PRINT "TO STOP SONG TYPE: RUN 230"
+210 PRINT "SONG DRIVER WILL STAY RESIDENT"
+220 END
+230 POKE$30D,0 : REM PRIORITY (SLOT) 0
+240 SYS$A009 : REM ZSM-STOP
+250 PRINT "TO CONTINUE SONG TYPE: RUN 180"
+260 END
+
 ```
 
 These are the entry points of this ZSMKit blob that can be used from BASIC.
 
+Ensure that you have called `BANK` to point to the RAM bank where you have loaded ZSMKit before calling `SYS`, keeping in mind that BLOAD can and will change this value to reflect where the load ended.
+
 See the [quick reference](..) in the README of the parent directory of this one for documentation for each of these calls.
 
 ```
-    zsm_init_engine  = $8C00
-    zsm_tick         = $8C03
-    zsm_play         = $8C06
-    zsm_stop         = $8C09
-    zsm_rewind       = $8C0C
-    zsm_close        = $8C0F
-    zsm_setmem       = $8C1E
-    zsm_setatten     = $8C21
-    zsm_setcb        = $8C24
-    zsm_clearcb      = $8C27
-    zsm_getstate     = $8C2A
-    zsm_setrate      = $8C2D
-    zsm_getrate      = $8C30
-    zsm_setloop      = $8C33
-    zsm_opmatten     = $8C36
-    zsm_psgatten     = $8C39
-    zsm_pcmatten     = $8C3C
-    zsm_set_int_rate = $8C3F
+    zsm_init_engine  = $A000 ; GLOBAL: initialize the ZSMKit engine
+    zsm_tick         = $A003 ; GLOBAL: process one tick of music data
+    zsm_play         = $A006 ; PER-PRIORITY: start playback
+    zsm_stop         = $A009 ; PER-PRIORITY: pause or stop playback
+    zsm_rewind       = $A00C ; PER-PRIORITY: reset to start of music
+    zsm_close        = $A00F ; PER-PRIORITY: stop playback and clear playable status
+    zsm_getloop      = $A012 ; PER-PRIORITY: get loop flag and address of loop point
+    zsm_getptr       = $A015 ; PER-PRIORITY: get address of playback cursor
+    zsm_getksptr     = $A018 ; PER-PRIORITY: get address of OPM keydown shadow
+    zsm_setbank      = $A01B ; PER-PRIORITY: set bank <- do this first
+    zsm_setmem       = $A01E ; PER-PRIORITY: set address <- do this second
+    zsm_setatten     = $A021 ; PER-PRIORITY: set attenuation (master volume)
+    zsm_setcb        = $A024 ; PER-PRIORITY: set up callback (persists through song changes)
+    zsm_clearcb      = $A027 ; PER-PRIORITY: clear callback
+    zsm_getstate     = $A02A ; PER-PRIORITY: get playback state
+    zsm_setrate      = $A02D ; PER-PRIORITY: set tick rate (tempo)
+    zsm_getrate      = $A030 ; PER-PRIORITY: get tick rate
+    zsm_setloop      = $A033 ; PER-PRIORITY: set or clear loop flag
+    zsm_opmatten     = $A036 ; PER-PRIORITY: set attenuation of specific FM channel
+    zsm_psgatten     = $A039 ; PER-PRIORITY: set attenuation of specific PSG channel
+    zsm_pcmatten     = $A03C ; PER-PRIORITY: set attenuation of PCM events in song
+    zsm_set_int_rate = $A03F ; GLOBAL: inform ZSMKit of expected tick rate
+    zsm_getosptr     = $A042 ; PER-PRIORITY: get address of OPM shadow
+    zsm_getpsptr     = $A045 ; PER-PRIORITY: get address of PSG shadow
+    zcm_setbank      = $A048 ; PER-SLOT: set bank of ZCM (PCM) <- do this first
+    zcm_setmem       = $A04B ; PER-SLOT: set address of ZCM (PCM) <- do this second
+    zcm_play         = $A04E ; PER-SLOT: play ZCM (PCM)
+    zcm_stop         = $A051 ; GLOBAL: cancel ZCM playback
+    zsmkit_setisr    = $A054 ; GLOBAL: install a default interrupt handler
+    zsmkit_clearisr  = $A057 ; GLOBAL: restore the previous interrupt handler
+    zsmkit_version   = $A05A ; GLOBAL: get the ZSMKit version
 
-    zcm_setmem       = $8C4B
-    zcm_play         = $8C4E
-    zcm_stop         = $8C51
-
-    zsmkit_setisr    = $8C54
-    zsmkit_clearisr  = $8C57
 ```
 
 Use the SYS communication locations provided by the BASIC interpreter to
