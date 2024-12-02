@@ -940,7 +940,7 @@ TC = *-1
 
 	pla
 	ldx pcm_prio
-	clc
+	; carry is almost certainly clear from above
 	adc pcm_data_l,x
 	sta pcm_cur_l
 
@@ -964,7 +964,7 @@ TC = *-1
 	beq end_r
 
 	lda pcm_cur_l
-	clc
+	; carry is almost certainly clear from above (unless PCM banks are corrupt)
 	adc pcm_loop_l
 	sta pcm_loop_l
 	lda pcm_cur_h
@@ -1436,11 +1436,10 @@ do_bankwrap:
 opmloop:
 	phy
 	lda opm_voice_mask+(NUM_PRIORITIES*8),y
-	sec
-	sbc opm_voice_mask,y
+	cmp opm_voice_mask,y
 	beq opmnext ; no change
-	lda opm_voice_mask+(NUM_PRIORITIES*8),y
 	sta opm_voice_mask,y
+	ora #0
 	beq opmvoiceoff
 opmvoiceon:
 	tya
@@ -1474,11 +1473,10 @@ OVMS = * - 1
 psgloop:
 	phy
 	lda vera_psg_voice_mask+(NUM_PRIORITIES*16),y
-	sec
-	sbc vera_psg_voice_mask,y
+	cmp vera_psg_voice_mask,y
 	beq psgnext ; no change
-	lda vera_psg_voice_mask+(NUM_PRIORITIES*16),y
 	sta vera_psg_voice_mask,y
+	ora #0
 	beq psgvoiceoff
 psgvoiceon:
 	tya
@@ -1541,6 +1539,7 @@ PVMS = * - 1
 
 	; set up the shadow writes
 	lda times_64,x
+	clc ; carry is almost certainly clear from above unless delay was already negative.  In case that changes (early bail gets implemented, for example), we keep the clc here
 	adc #<vera_psg_shadow
 	sta PS
 	lda #>vera_psg_shadow
@@ -1548,7 +1547,7 @@ PVMS = * - 1
 	sta PS+1
 
 	txa
-	clc
+	; carry is almost certainly already clear
 	adc #>opm_shadow
 	sta OS
 
@@ -1567,7 +1566,6 @@ GETZSMBYTEA = * -2
 	beq iseod
 	; is delay
 	and #$7f
-	cmp #$30
 	clc
 	adc delay_l,x
 	sta delay_l,x
@@ -2169,7 +2167,7 @@ opmloop:
 
 	txa
 
-	clc
+	; carry is almost certainly already clear
 	adc #>opm_shadow
 	sta OH
 	sta OH7
@@ -2239,7 +2237,7 @@ psgloop:
 	ldx vera_psg_priority,y
 
 	lda times_16,x
-	clc
+	; carry is almost certainly already clear
 	adc #<vera_psg_atten_shadow
 	sta PASR
 	lda #>vera_psg_atten_shadow
@@ -2481,7 +2479,7 @@ bounds_checked:
 	bcs end
 
 	lda times_8,x
-	clc
+	; carry is almost certainly already clear
 	adc #<opm_atten_shadow
 	sta OAS
 	lda #>opm_atten_shadow
@@ -3047,7 +3045,7 @@ noerr1:
 	asl        ; each of these is
 	asl        ; worth 64 k
 	asl        ; or 8 banks
-	clc
+	; carry is almost certainly clear unless loop point high is corrupt
 	adc zsm_start_bank,x
 	sta zsm_loop_bank,x
 
@@ -3067,7 +3065,7 @@ noerr1:
 	tay         ; will be < $ff
 
 	lda tmp1    ; loop point low
-	clc
+	; carry is almost certainly clear unless loop point high is corrupt (added to med)
 	adc zsm_start_l,x
 	sta zsm_loop_l,x
 	tya
@@ -3122,7 +3120,7 @@ has_loop:
 	asl        ; each of these is
 	asl        ; worth 64 k
 	asl        ; or 8 banks
-	clc
+	; carry is almost certainly already clear unless PCM offset high is corrupt
 	adc zsm_start_bank,x
 	sta pcm_table_bank,x
 
@@ -3141,7 +3139,7 @@ has_loop:
 	tay        ; will be < $ff
 
 	lda tmp1   ; PCM offset [7:0]
-	clc
+	; carry is almost certainly already clear unless PCM offset high is corrupt (added to med)
 	adc zsm_start_l,x ; start of zsm data (LSB)
 	sta pcm_table_l,x
 	tya         ; PCM offset [12:8]
@@ -3316,7 +3314,7 @@ TMPA = * - 1
 	stx prio
 
 	txa
-	clc
+	; carry is almost certainly already clear
 	adc #NUM_PRIORITIES
 	tax
 
