@@ -1599,8 +1599,7 @@ iseod:
 	ldy #$00
 	; A == 0 already
 	jsr _callback
-	jsr _stop_sound
-	rts
+	jmp _stop_sound
 isext:
 	jsr advanceptr
 	jsr getzsmbyte
@@ -2116,9 +2115,7 @@ RR1 = *-1
 
 	; release voice
 	pla
-	jsr ym_release
-
-	rts
+	jmp ym_release
 .endproc
 
 ;............
@@ -2319,8 +2316,7 @@ voice:
 	tya
 	sta callback_addr_h,x
 
-	lda #$80
-	sta callback_enabled,x
+	dec callback_enabled,x
 
 	rts
 .endproc
@@ -2385,9 +2381,7 @@ voice:
 	tya
 	sta tick_rate_h,x
 
-	jsr _calculate_speed
-
-	rts
+	jmp _calculate_speed
 .endproc
 
 
@@ -2430,8 +2424,8 @@ voice:
 	rts
 .endproc
 
-;............
-; _opmatten :
+;...............
+; zsm_opmatten :
 ;============================================================================
 ; Arguments: .X = priority, .A = value, .Y = channel
 ; Returns: (none)
@@ -2440,7 +2434,9 @@ voice:
 ; ---------------------------------------------------------------------------
 ;
 ; Sets the OPM attenuation value of a voice/prio.  $00 = full volume, $3F = muted
-.proc _opmatten: near
+.proc zsm_opmatten: near
+	php
+	sei
 	cmp #$3f
 	bcc :+
 	lda #$7f
@@ -2506,31 +2502,13 @@ VAL = * - 1
 	sta opm_atten_shadow,y
 OAS = * -2
 end:
+	plp
 	rts
 
 .endproc
 
 ;...............
-; zsm_opmatten :
-;============================================================================
-; Arguments: .X = priority, .A = value, .Y = channel
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-;
-; Sets the OPM attenuation value of a channel/prio.  $00 = full volume, $3F = muted
-.proc zsm_opmatten: near
-	php
-	sei
-	jsr _opmatten
-end:
-	plp
-	rts
-.endproc
-
-;............
-; _psgatten :
+; zsm_psgatten :
 ;============================================================================
 ; Arguments: .X = priority, .A = value, .Y = channel
 ; Returns: (none)
@@ -2539,7 +2517,9 @@ end:
 ; ---------------------------------------------------------------------------
 ;
 ; Sets the PSG attenuation value of a channel/prio.  $00 = full volume, $3F = muted
-.proc _psgatten: near
+.proc zsm_psgatten: near
+	php
+	sei
 	cpx #NUM_PRIORITIES
 	bcs end
 	cmp #$3f
@@ -2580,30 +2560,12 @@ VAL = * - 1
 	sta vera_psg_atten_shadow,y
 PAS = *-2
 end:
-	rts
-.endproc
-
-;...............
-; zsm_psgatten :
-;============================================================================
-; Arguments: .X = priority, .A = value, .Y = channel
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-;
-; Sets the PSG attenuation value of a channel/prio.  $00 = full volume, $3F = muted
-.proc zsm_psgatten: near
-	php
-	sei
-	jsr _psgatten
-end:
 	plp
 	rts
 .endproc
 
-;............
-; _pcmatten :
+;..............
+; zsm_pcmatten :
 ;============================================================================
 ; Arguments: .X = priority, .A = value
 ; Returns: (none)
@@ -2611,8 +2573,10 @@ end:
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
 ;
-; Sets the PCM attenuation value of a song.  $00 = full volume, $3F = muted
-.proc _pcmatten: near
+; Sets the PCM attenuation value of a prio.  $00 = full volume, $3F = muted
+.proc zsm_pcmatten: near
+	php
+	sei
 	cpx #NUM_PRIORITIES
 	bcs end
 	ldy #16
@@ -2637,29 +2601,11 @@ end:
 NV = * -1
 	sta Vera::Reg::AudioCtrl
 end:
+	plp
 	rts
 scalelut:
 	.byte 0,5,9,14,18,23,27,31
 	.byte 36,40,45,49,54,58,61,63
-.endproc
-
-;...............
-; zsm_pcmatten :
-;============================================================================
-; Arguments: .X = priority, .A = value
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-;
-; Sets the PCM attenuation value of a song.  $00 = full volume, $3F = muted
-.proc zsm_pcmatten: near
-	php
-	sei
-	jsr _pcmatten
-end:
-	plp
-	rts
 .endproc
 
 ;...............
@@ -2685,7 +2631,7 @@ end:
 ; PCM
 	lda #$ff
 val = * - 1
-	jsr _pcmatten
+	jsr zsm_pcmatten
 
 dopsg:
 	ldy #15
@@ -2694,7 +2640,7 @@ psgloop:
 	ldx #$ff
 prio = * - 1
 	lda val
-	jsr _psgatten
+	jsr zsm_psgatten
 
 	dey
 	bpl psgloop
@@ -2705,7 +2651,7 @@ opmloop:
 	ldx prio
 	lda val
 
-	jsr _opmatten
+	jsr zsm_opmatten
 
 	dey
 	bpl opmloop
@@ -2728,12 +2674,9 @@ exit:
 ; stops playback if necessary and resets the song pointer to the beginning
 ;
 .proc zsm_rewind: near
-	stx prio
 	lda prio_active,x
 	beq :+
-	jsr zsm_stop
-	ldx #$ff
-prio = * - 1
+	jsr zsm_stop ; preserves .X
 :
 memory:
 	lda zsm_start_l,x
@@ -2758,23 +2701,15 @@ cont:
 ;============================================================================
 ; Arguments: .X = priority
 ; Returns: (none)
-; Preserves: (none)
+; Preserves: .X
 ; Allowed in interrupt handler: no
 ; ---------------------------------------------------------------------------
 ;
 ; sets priority to unused/not playable
 ;
 .proc zsm_close: near
-	stx prio
-	lda prio_active,x
-	beq :+
-	jsr zsm_stop
-	ldx #$ff
-prio = * - 1
-:
 	stz prio_playable,x
-
-	rts
+	; fall through to zsm_stop
 .endproc
 
 ;...........
@@ -2782,7 +2717,7 @@ prio = * - 1
 ;============================================================================
 ; Arguments: .X = priority
 ; Returns: (none)
-; Preserves: (none)
+; Preserves: .X
 ; Allowed in interrupt handler: no
 ; ---------------------------------------------------------------------------
 ;
@@ -2800,7 +2735,7 @@ prio = * - 1
 	lda prio_active,x
 	beq exit
 
-	jsr _stop_sound
+	jsr _stop_sound ; preserves .X
 exit:
 	plp ; restore interrupt mask state
 	pla
@@ -2814,7 +2749,7 @@ exit:
 ;============================================================================
 ; Arguments: .X = priority
 ; Returns: (none)
-; Preserves: (none)
+; Preserves: .X
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
 ;
@@ -2948,8 +2883,7 @@ nextpsg:
 
 	; indicate prio is now active
 	ldx prio
-	lda #$80
-	sta prio_active,x
+	inc prio_active,x
 
 	plp ; end critical section
 exit:
@@ -3325,8 +3259,7 @@ prio2 = * - 1
 
 	ldx #$ff
 prio = * - 1
-	lda #$80
-	sta prio_ondeck,x
+	inc prio_ondeck,x
 end:
 	RESTORE_ZP_PTR
 	rts
