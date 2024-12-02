@@ -603,7 +603,8 @@ DOX = *-1
 	stx prio
 prioloop:
 	jsr _prio_tick
-	ldx prio
+	ldx #$ff
+prio = * - 1
 	dex
 	stx prio
 	bpl prioloop
@@ -635,8 +636,6 @@ R1 = *-1
 	RESTORE_ZP_PTR_TICK
 
 	rts
-prio:
-	.byte 0
 .endproc
 
 ;..............
@@ -1677,7 +1676,7 @@ ondeck:
 	jsr _promote_ondeck
 	; zeroth loop
 	lda #$00
-	ldy #$01
+	ldy #$04
 	jsr _callback
 	jmp note_loop
 islooped:
@@ -2720,22 +2719,23 @@ end:
 	sei
 
 ; PCM
-	lda val
+	lda #$ff
+val = * - 1
 	jsr _pcmatten
 
 dopsg:
-	ldy #0
+	ldy #15
 psgloop:
 
-	ldx prio
+	ldx #$ff
+prio = * - 1
 	lda val
 	jsr _psgatten
 
-	iny
-	cpy #16
-	bne psgloop
+	dey
+	bpl psgloop
 
-	ldy #0
+	ldy #7
 opmloop:
 
 	ldx prio
@@ -2743,18 +2743,13 @@ opmloop:
 
 	jsr _opmatten
 
-	iny
-	cpy #8
-	bne opmloop
+	dey
+	bpl opmloop
 
 	plp
 
 exit:
 	rts
-prio:
-	.byte 0
-val:
-	.byte 0
 .endproc
 
 ;.............
@@ -2773,7 +2768,8 @@ val:
 	lda prio_active,x
 	beq :+
 	jsr zsm_stop
-	ldx prio
+	ldx #$ff
+prio = * - 1
 :
 memory:
 	lda zsm_start_l,x
@@ -2790,8 +2786,6 @@ cont:
 	stz loop_number_h,x
 	stz loop_number_l,x
 	rts
-prio:
-	.byte 0
 .endproc
 
 
@@ -2811,13 +2805,12 @@ prio:
 	lda prio_active,x
 	beq :+
 	jsr zsm_stop
-	ldx prio
+	ldx #$ff
+prio = * - 1
 :
 	stz prio_playable,x
 
 	rts
-prio:
-	.byte 0
 .endproc
 
 ;...........
@@ -2968,7 +2961,8 @@ nextopm:
 	bcc opmloop
 
 	; psg voices
-	ldx prio
+	ldx #$ff
+prio = * - 1
 noopm:
 	ldy times_16,x
 	ldx #0
@@ -2999,8 +2993,6 @@ nextpsg:
 	plp ; end critical section
 exit:
 	rts
-prio:
-	.byte 0
 .endproc
 
 ;..............
@@ -3300,7 +3292,8 @@ TMPA = * - 1
 
 	jsr _zsm_setmem_p2 ; OPM/PSG channel masks
 
-	ldx prio
+	ldx #$ff
+prio = * - 1
 
 	jsr _zsm_setmem_p3 ; PCM table setup
 
@@ -3322,8 +3315,6 @@ TMPA = * - 1
 end:
 	RESTORE_ZP_PTR
 	rts
-prio:
-	.byte 0
 .endproc
 
 ;.....................
@@ -3366,20 +3357,18 @@ TMPA = * - 1
 
 	jsr _zsm_setmem_p2 ; OPM/PSG channel masks
 
-	ldx prio2
+	ldx #$ff
+prio2 = * - 1
 
 	jsr _zsm_setmem_p3 ; PCM table setup
 
-	ldx prio
+	ldx #$ff
+prio = * - 1
 	lda #$80
 	sta prio_ondeck,x
 end:
 	RESTORE_ZP_PTR
 	rts
-prio:
-	.byte 0
-prio2:
-	.byte 0
 .endproc
 
 
@@ -3483,7 +3472,8 @@ l2:
 	dex
 	bne l1
 
-	ldx prio
+	ldx #$ff
+prio = * - 1
 	lda tmp2
 	sta speed_f,x
 	lda tmp2+1
@@ -3493,8 +3483,6 @@ l2:
 
 	plp
 	rts
-prio:
-	.byte 0
 tmp1:
 	.byte 0,0
 tmp2:

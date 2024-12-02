@@ -163,6 +163,8 @@ Inside the callback, .X will be set to the priority, .Y will be set to the event
 |$01|LSB of loop number|Song has looped|
 |$02|any|Synchronization message from ZSM (sync type 0)|
 |$03|Signed byte: tuning offset in 256ths of a semitone|Song tuning change from ZSM (sync type 1)|
+|$04|-|On deck song has been promoted to active song|
+
 
 Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
 
