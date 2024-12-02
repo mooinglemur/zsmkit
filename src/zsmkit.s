@@ -423,7 +423,7 @@ _old_isr:
 ;============================================================================
 ; Arguments: (none)
 ; Returns: .A = major version
-;          .X = minorversion
+;          .X = minor version
 ; Preserves: .Y
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
@@ -1575,20 +1575,10 @@ GETZSMBYTEA = * -2
 	inc delay_h,x
 nextnote:
 	jsr advanceptr
-	bcs error
 	lda delay_h,x
 	bmi note_loop
 exit:
 	rts
-plaerror:
-	pla
-error:
-	ldx prio
-	stz prio_playable,x
-	ldy #$00
-	lda #$80
-	jsr _callback
-	jmp _stop_sound
 isdata:
 	cmp #$40
 	beq isext
@@ -1596,7 +1586,6 @@ isdata:
 	; is psg
 	pha
 	jsr advanceptr
-	bcs plaerror
 	jsr getzsmbyte
 GETZSMBYTEB = * -2
 	plx
@@ -1607,7 +1596,7 @@ PS = *-2
 	bra nextnote
 iseod:
 	lda loop_enable,x
-	jne islooped
+	bne islooped
 	lda prio_ondeck,x
 	bne ondeck
 	stz prio_active,x
@@ -1618,7 +1607,6 @@ iseod:
 	rts
 isext:
 	jsr advanceptr
-	bcs error
 	jsr getzsmbyte
 GETZSMBYTEC = * -2
 	cmp #$40
@@ -1626,7 +1614,7 @@ GETZSMBYTEC = * -2
 	cmp #$80
 	bcc ischip
 	cmp #$c0
-	jcc issync
+	bcc issync
 	; channel 3, future use, ignore
 ischip: ; external chip, ignore
 	and #$3f
@@ -1634,7 +1622,6 @@ ischip: ; external chip, ignore
 	tay
 	beq nextnote
 :	jsr advanceptr
-	bcs error
 	dey
 	bne :-
 	bra nextnote
@@ -1646,7 +1633,6 @@ isopm:
 	jcs skip_opm
 opmloop:
 	jsr advanceptr
-	bcs error
 	jsr getzsmbyte
 GETZSMBYTED = * -2
 	cmp #$01 ; OPM TEST register
@@ -1655,7 +1641,6 @@ GETZSMBYTED = * -2
 TEST_REGISTER = * - 1
 :	pha
 	jsr advanceptr
-	jcs plaerror
 	jsr getzsmbyte
 GETZSMBYTEE = * -2
 	plx
@@ -1674,9 +1659,7 @@ prio = * - 1
 	jmp nextnote
 ondeck:
 	jsr _promote_ondeck
-	; zeroth loop
-	lda #$00
-	ldy #$04
+	ldy #$10
 	jsr _callback
 	jmp note_loop
 islooped:
@@ -1700,13 +1683,11 @@ issync:
 	and #$3f
 	pha ; save count
 	jsr advanceptr
-	bcs plaerror2
 	jsr getzsmbyte
 GETZSMBYTEF = * -2
-	cmp #$02
+	cmp #$0e ; ZSM sync type 0-13
 	bcc isgensync
 	jsr advanceptr
-	bcs plaerror2
 endsync:
 	pla ; restore count
 	dec
@@ -1725,10 +1706,9 @@ SK = * -1
 	sta opm_key_shadow,x
 	bra back2ymblock
 isgensync:
-	adc #2 ; sync message 2 or 3, arriving after bcc so carry is clear
+	adc #2 ; callback type 0-13, shifted to 2-15, arriving after bcc so carry is clear
 	tay
 	jsr advanceptr
-	bcs plaerror2
 	jsr getzsmbyte
 GETZSMBYTEG = * -2
 	jsr _callback
@@ -1736,7 +1716,6 @@ GETZSMBYTEG = * -2
 ispcm:
 	pha ; save count
 	jsr advanceptr
-	bcs plaerror2
 	jsr getzsmbyte
 GETZSMBYTEH = * -2
 	ora #0
@@ -1745,7 +1724,6 @@ GETZSMBYTEH = * -2
 	beq ispcmrate
 	; PCM trigger
 	jsr advanceptr
-	bcs error2
 	jsr getzsmbyte
 GETZSMBYTEI = * -2
 	jsr _pcm_trigger_instrument
@@ -1756,13 +1734,8 @@ endpcm:
 	dec
 	bne ispcm
 	jmp nextnote
-plaerror2:
-	pla
-error2:
-	jmp error
 ispcmctrl:
 	jsr advanceptr
-	bcs error2
 	jsr getzsmbyte
 GETZSMBYTEJ = * -2
 	sta pcm_ctrl_shadow,x
@@ -1788,7 +1761,6 @@ AV = *-1
 :	bra endpcm
 ispcmrate:
 	jsr advanceptr
-	bcs error2
 	jsr getzsmbyte
 GETZSMBYTEK = * -2
 	sta pcm_rate_shadow,x
@@ -1801,13 +1773,11 @@ advanceptr:
 	bne :+
 	inc PTR+1
 :	lda PTR+1
-@mem:
 	cmp #$c0
 	bcc :+
 	inc zsm_ptr_bank,x
 	lda #$a0
 	sta PTR+1
-	clc
 :	sta zsm_ptr_h,x
 	lda PTR
 	sta zsm_ptr_l,x
