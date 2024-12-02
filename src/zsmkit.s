@@ -15,38 +15,40 @@ NUM_OPM_PRIORITIES = 4
 PTR = $02 ; temporary ZP used for indirect addressing, preserved and restored
 
 .segment "JMPTBL"
-jmp zsm_init_engine  ; $A000
-jmp zsm_tick         ; $A003
-jmp zsm_play         ; $A006
-jmp zsm_stop         ; $A009
-jmp zsm_rewind       ; $A00C
-jmp zsm_close        ; $A00F
-jmp zsm_getloop      ; $A012
-jmp zsm_getptr       ; $A015
-jmp zsm_getksptr     ; $A018
-jmp zsm_setbank      ; $A01B
-jmp zsm_setmem       ; $A01E
-jmp zsm_setatten     ; $A021
-jmp zsm_setcb        ; $A024
-jmp zsm_clearcb      ; $A027
-jmp zsm_getstate     ; $A02A
-jmp zsm_setrate      ; $A02D
-jmp zsm_getrate      ; $A030
-jmp zsm_setloop      ; $A033
-jmp zsm_opmatten     ; $A036
-jmp zsm_psgatten     ; $A039
-jmp zsm_pcmatten     ; $A03C
-jmp zsm_set_int_rate ; $A03F
-jmp zsm_getosptr     ; $A042
-jmp zsm_getpsptr     ; $A045
-jmp zcm_setbank      ; $A048
-jmp zcm_setmem       ; $A04B
-jmp zcm_play         ; $A04E
-jmp zcm_stop         ; $A051
-jmp zsmkit_setisr    ; $A054
-jmp zsmkit_clearisr  ; $A057
-jmp zsmkit_version   ; $A05A
-
+jmp zsm_init_engine      ; $A000
+jmp zsm_tick             ; $A003
+jmp zsm_play             ; $A006
+jmp zsm_stop             ; $A009
+jmp zsm_rewind           ; $A00C
+jmp zsm_close            ; $A00F
+jmp zsm_getloop          ; $A012
+jmp zsm_getptr           ; $A015
+jmp zsm_getksptr         ; $A018
+jmp zsm_setbank          ; $A01B
+jmp zsm_setmem           ; $A01E
+jmp zsm_setatten         ; $A021
+jmp zsm_setcb            ; $A024
+jmp zsm_clearcb          ; $A027
+jmp zsm_getstate         ; $A02A
+jmp zsm_setrate          ; $A02D
+jmp zsm_getrate          ; $A030
+jmp zsm_setloop          ; $A033
+jmp zsm_opmatten         ; $A036
+jmp zsm_psgatten         ; $A039
+jmp zsm_pcmatten         ; $A03C
+jmp zsm_set_int_rate     ; $A03F
+jmp zsm_getosptr         ; $A042
+jmp zsm_getpsptr         ; $A045
+jmp zcm_setbank          ; $A048
+jmp zcm_setmem           ; $A04B
+jmp zcm_play             ; $A04E
+jmp zcm_stop             ; $A051
+jmp zsmkit_setisr        ; $A054
+jmp zsmkit_clearisr      ; $A057
+jmp zsmkit_version       ; $A05A
+jmp zsm_set_ondeck_bank  ; $A05D
+jmp zsm_set_ondeck_mem   ; $A060
+jmp zsm_clear_ondeck     ; $A063
 
 .segment "ZSMKITBSS"
 _ZSM_BSS_START := *
@@ -75,14 +77,19 @@ pcm_atten_shadow:       .res NUM_PRIORITIES
 ; is not active, these are zeroed.
 
 ; offset = (priority * 8) + (voice)
-opm_voice_mask:         .res NUM_OPM_PRIORITIES*8
+; allocating more than we need to reduce code complexity
+opm_voice_mask:         .res NUM_PRIORITIES*8*2
 
 ; offset = (priority * 16) + (voice)
-vera_psg_voice_mask:    .res NUM_PRIORITIES*16
+vera_psg_voice_mask:    .res NUM_PRIORITIES*16*2
 
 ; Is the song playing? Nonzero is truth.
 ; offset = (priority)
 prio_active:            .res NUM_PRIORITIES
+
+; Does the song have a configured on-deck
+; assignment? Non-zero is true
+prio_ondeck:            .res NUM_PRIORITIES
 
 ; Did the player encounter a fault of some sort?
 ; This is set zero whenever that happens
@@ -99,26 +106,26 @@ callback_enabled:       .res NUM_PRIORITIES
 ; The bank and offset of the beginning of
 ; the song, loop point, and of the current pointer
 ; offset = (priority)
-zsm_start_bank:         .res NUM_PRIORITIES
-zsm_start_l:            .res NUM_PRIORITIES
-zsm_start_h:            .res NUM_PRIORITIES
+zsm_start_bank:         .res NUM_PRIORITIES*2
+zsm_start_l:            .res NUM_PRIORITIES*2
+zsm_start_h:            .res NUM_PRIORITIES*2
 
-zsm_loop_bank:          .res NUM_PRIORITIES
-zsm_loop_l:             .res NUM_PRIORITIES
-zsm_loop_h:             .res NUM_PRIORITIES 
+zsm_loop_bank:          .res NUM_PRIORITIES*2
+zsm_loop_l:             .res NUM_PRIORITIES*2
+zsm_loop_h:             .res NUM_PRIORITIES*2
 
 zsm_ptr_bank:           .res NUM_PRIORITIES
 zsm_ptr_l:              .res NUM_PRIORITIES
 zsm_ptr_h:              .res NUM_PRIORITIES
 
-loop_enable:            .res NUM_PRIORITIES
+loop_enable:            .res NUM_PRIORITIES*2
 
 loop_number_l:          .res NUM_PRIORITIES
 loop_number_h:          .res NUM_PRIORITIES
 
 ; Hz (from file)
-tick_rate_l:            .res NUM_PRIORITIES
-tick_rate_h:            .res NUM_PRIORITIES
+tick_rate_l:            .res NUM_PRIORITIES*2
+tick_rate_h:            .res NUM_PRIORITIES*2
 
 ; speed (Hz/60) - delays to subtract per tick
 speed_f:                .res NUM_PRIORITIES
@@ -131,16 +138,16 @@ delay_l:                .res NUM_PRIORITIES
 delay_h:                .res NUM_PRIORITIES
 
 ; if exists, points to the PCM instrument table in RAM
-pcm_table_exists:       .res NUM_PRIORITIES
-pcm_table_bank:         .res NUM_PRIORITIES
-pcm_table_l:            .res NUM_PRIORITIES
-pcm_table_h:            .res NUM_PRIORITIES
+pcm_table_exists:       .res NUM_PRIORITIES*2
+pcm_table_bank:         .res NUM_PRIORITIES*2
+pcm_table_l:            .res NUM_PRIORITIES*2
+pcm_table_h:            .res NUM_PRIORITIES*2
 
-pcm_inst_max:           .res NUM_PRIORITIES
+pcm_inst_max:           .res NUM_PRIORITIES*2
 
-pcm_data_bank:          .res NUM_PRIORITIES
-pcm_data_l:             .res NUM_PRIORITIES
-pcm_data_h:             .res NUM_PRIORITIES
+pcm_data_bank:          .res NUM_PRIORITIES*2
+pcm_data_l:             .res NUM_PRIORITIES*2
+pcm_data_h:             .res NUM_PRIORITIES*2
 
 ; The prio that currently has a PCM event going
 ; $80 means ZCM is/was playing
@@ -1369,6 +1376,140 @@ do_bankwrap:
 
 .popseg
 
+.proc _promote_ondeck: near
+	; clear ondeck state
+	stz prio_ondeck,x
+
+	; copy song location state
+	lda zsm_start_bank+NUM_PRIORITIES,x
+	sta zsm_start_bank,x
+	sta zsm_ptr_bank,x
+	lda zsm_start_l+NUM_PRIORITIES,x
+	sta zsm_start_l,x
+	sta zsm_ptr_l,x
+	sta PTR
+	lda zsm_start_h+NUM_PRIORITIES,x
+	sta zsm_start_h,x
+	sta zsm_ptr_h,x
+	sta PTR+1
+
+	lda zsm_loop_bank+NUM_PRIORITIES,x
+	sta zsm_loop_bank,x
+	lda zsm_loop_l+NUM_PRIORITIES,x
+	sta zsm_loop_l,x
+	lda zsm_loop_h+NUM_PRIORITIES,x
+	sta zsm_loop_h,x
+
+	lda loop_enable+NUM_PRIORITIES,x
+	sta loop_enable,x
+
+	lda pcm_table_exists+NUM_PRIORITIES,x
+	sta pcm_table_exists,x
+	lda pcm_table_bank+NUM_PRIORITIES,x
+	sta pcm_table_bank,x
+	lda pcm_table_l+NUM_PRIORITIES,x
+	sta pcm_table_l,x
+	lda pcm_table_h+NUM_PRIORITIES,x
+	sta pcm_table_h,x
+
+	lda pcm_inst_max+NUM_PRIORITIES,x
+	sta pcm_inst_max,x
+	lda pcm_data_bank+NUM_PRIORITIES,x
+	sta pcm_data_bank,x
+	lda pcm_data_l+NUM_PRIORITIES,x
+	sta pcm_data_l,x
+	lda pcm_data_h+NUM_PRIORITIES,x
+	sta pcm_data_h,x
+
+	lda tick_rate_l+NUM_PRIORITIES,x
+	sta tick_rate_l,x
+	lda tick_rate_h+NUM_PRIORITIES,x
+	sta tick_rate_h,x
+
+	stz loop_number_l,x
+	stz loop_number_h,x
+
+	lda times_8,x
+	tay
+	clc
+	adc #8
+	sta OVMS
+opmloop:
+	phy
+	lda opm_voice_mask+(NUM_PRIORITIES*8),y
+	sec
+	sbc opm_voice_mask,y
+	beq opmnext ; no change
+	lda opm_voice_mask+(NUM_PRIORITIES*8),y
+	sta opm_voice_mask,y
+	beq opmvoiceoff
+opmvoiceon:
+	tya
+	and #7
+	tay
+	lda opm_priority,y
+	cmp #$ff
+	beq opmgrab
+	txa
+	cmp opm_priority,y
+	bcc opmnext
+opmgrab:
+	txa
+	sta opm_priority,y
+	bra opmnext
+opmvoiceoff:
+	lda #$80
+	sta recheck_priorities
+opmnext:
+	ply
+	iny
+	cpy #$ff
+OVMS = * - 1
+	bcc opmloop
+
+	lda times_16,x
+	tay
+	clc
+	adc #16
+	sta PVMS
+psgloop:
+	phy
+	lda vera_psg_voice_mask+(NUM_PRIORITIES*16),y
+	sec
+	sbc vera_psg_voice_mask,y
+	beq psgnext ; no change
+	lda vera_psg_voice_mask+(NUM_PRIORITIES*16),y
+	sta vera_psg_voice_mask,y
+	beq psgvoiceoff
+psgvoiceon:
+	tya
+	and #15
+	tay
+	lda vera_psg_priority,y
+	cmp #$ff
+	beq psggrab
+	txa
+	cmp vera_psg_priority,y
+	bcc psgnext
+psggrab:
+	txa
+	sta vera_psg_priority,y
+	bra psgnext
+psgvoiceoff:
+	lda #$80
+	sta recheck_priorities
+psgnext:
+	ply
+	iny
+	cpy #$ff
+PVMS = * - 1
+	bcc psgloop
+
+	jsr _calculate_speed
+
+	rts
+.endproc
+
 ;.............
 ; _prio_tick :
 ;============================================================================
@@ -1467,7 +1608,9 @@ PS = *-2
 	bra nextnote
 iseod:
 	lda loop_enable,x
-	bne islooped
+	jne islooped
+	lda prio_ondeck,x
+	bne ondeck
 	stz prio_active,x
 	ldy #$00
 	; A == 0 already
@@ -1530,6 +1673,13 @@ prio = * - 1
 	dey
 	bne opmloop
 	jmp nextnote
+ondeck:
+	jsr _promote_ondeck
+	; zeroth loop
+	lda #$00
+	ldy #$01
+	jsr _callback
+	jmp note_loop
 islooped:
 	inc loop_number_l,x
 	bne :+
@@ -1983,7 +2133,7 @@ exit:
 	adc #$08
 	sta RR4
 
-	; set release phase to $ff for this voice	
+	; set release phase to $ff for this voice
 	lda #$ff
 	ldx #$e0
 RR4 = *-1
@@ -2247,12 +2397,9 @@ voice:
 @1:
 	lda prio_playable,x
 	beq @2
-	php
-	sei
 
 	jsr _calculate_speed
 
-	plp
 @2:	dex
 	bpl @1
 
@@ -2275,10 +2422,8 @@ voice:
 	tya
 	sta tick_rate_h,x
 
-	php
-	sei
 	jsr _calculate_speed
-	plp
+
 	rts
 .endproc
 
@@ -2312,6 +2457,7 @@ voice:
 ;
 ; Sets the priority to loop if carry is set, if clear, disables looping
 .proc zsm_setloop: near
+	php
 	lda #$80
 	plp
 	bcs :+
@@ -2872,35 +3018,36 @@ prio:
 	rts
 .endproc
 
-;.............
-; zsm_setmem :
+;...................
+; zsm_clear_ondeck :
 ;============================================================================
-; Arguments: .X = priority, .A .Y = data pointer
-; Preparatory routines: zsm_setbank
+; Arguments: .X = priority
 ; Returns: (none)
 ; Allowed in interrupt handler: no
 ; ---------------------------------------------------------------------------
 ;
-; Sets the start of memory for the priority, reads it,
-; and parses the header
+; Clears the priority's on-deck tune
+.proc zsm_clear_ondeck: near
+	stz prio_ondeck,x
+	rts
+.endproc
+
+;......................
+; zsm_set_ondeck_bank :
+;============================================================================
+; Arguments: .X = priority, .A = RAM bank
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
 ;
-; Must only be called from main loop routines.
-.proc zsm_setmem: near
-	sta TMPA
-	PRESERVE_ZP_PTR
+; Sets the bank of the start of memory for the priority's next song,
+; !! must be set before calling zsm_ondeck_mem !!
+.proc zsm_set_ondeck_bank: near
+	sta zsm_start_bank+NUM_PRIORITIES,x
+	rts
+.endproc
 
-	lda #$00
-TMPA = * - 1
-	sta PTR
-	sty PTR+1
-
-	stx prio
-	lda prio_active,x
-	beq :+
-	jsr zsm_close ; will also stop
-:
-	ldx prio
-
+.proc _zsm_setmem_p1: near
 	; start bank of ZSM header
 	lda zsm_start_bank,x
 	sta fetch_bank
@@ -2924,7 +3071,6 @@ TMPA = * - 1
 
 err1:
 	stz prio_playable,x
-	RESTORE_ZP_PTR
 	sec
 	rts
 
@@ -3048,10 +3194,18 @@ has_loop:
 	inc pcm_table_exists,x ; set to 1 so we can finalize the table later
 
 nopcm:
+	clc
+	rts
+tmp1:
+	.byte 0,0,0
+.endproc
+
+.proc _zsm_setmem_p2: near
 	; FM channel mask
 	jsr get_next_byte
-	ldy prio
-	cpy #NUM_OPM_PRIORITIES
+	phx
+	ply
+	cpy #NUM_PRIORITIES*2
 	bcs noopm
 	ldx times_8,y
 .repeat 8,i
@@ -3074,8 +3228,10 @@ noopm:
 	stz vera_psg_voice_mask+i+8,x
 	ror vera_psg_voice_mask+i+8,x
 .endrepeat
-	ldx prio
+	rts
+.endproc
 
+.proc _zsm_setmem_p3: near
 	; ZSM tick rate
 	jsr get_next_byte
 	sta tick_rate_l,x
@@ -3088,18 +3244,65 @@ noopm:
 
 	lda fetch_bank
 	sta zsm_start_bank,x
+	cpx #NUM_PRIORITIES
+	bcs :+
 	sta zsm_ptr_bank,x
-	lda PTR
+:	lda PTR
 	sta zsm_start_l,x
+	bcs :+
 	sta zsm_ptr_l,x
-	lda PTR+1
+:	lda PTR+1
 	sta zsm_start_h,x
+	bcs :+
 	sta zsm_ptr_h,x
 
-	lda pcm_table_exists,x
+:	lda pcm_table_exists,x
 	beq :+
 	jsr _finalize_pcm_table
 :
+	rts
+.endproc
+
+;.............
+; zsm_setmem :
+;============================================================================
+; Arguments: .X = priority, .A .Y = data pointer
+; Preparatory routines: zsm_setbank
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the start of memory for the priority, reads it,
+; and parses the header
+;
+; Must only be called from main loop routines.
+.proc zsm_setmem: near
+	sta TMPA
+	PRESERVE_ZP_PTR
+
+	cpx #NUM_PRIORITIES
+	bcs end
+
+	lda #$00
+TMPA = * - 1
+	sta PTR
+	sty PTR+1
+
+	stx prio
+	lda prio_active,x
+	beq :+
+	jsr zsm_close ; will also stop
+:
+	ldx prio
+
+	jsr _zsm_setmem_p1 ; first part of header
+	bcs end
+
+	jsr _zsm_setmem_p2 ; OPM/PSG channel masks
+
+	ldx prio
+
+	jsr _zsm_setmem_p3 ; PCM table setup
 
 	; finish setup of state
 	stz delay_f,x
@@ -3116,14 +3319,69 @@ noopm:
 
 	jsr _calculate_speed
 
+end:
 	RESTORE_ZP_PTR
-
 	rts
 prio:
 	.byte 0
-tmp1:
-	.byte 0,0,0
 .endproc
+
+;.....................
+; zsm_set_ondeck_mem :
+;============================================================================
+; Arguments: .X = priority, .A .Y = data pointer
+; Preparatory routines: zsm_setbank
+; Returns: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets the start of memory for the priority's on-deck data, reads it,
+; and parses the header
+;
+; Must only be called from main loop routines.
+.proc zsm_set_ondeck_mem: near
+	sta TMPA
+	PRESERVE_ZP_PTR
+
+	cpx #NUM_PRIORITIES
+	bcs end
+
+	lda #$00
+TMPA = * - 1
+	sta PTR
+	sty PTR+1
+
+	stz prio_ondeck,x
+	stx prio
+
+	txa
+	clc
+	adc #NUM_PRIORITIES
+	tax
+
+	stx prio2
+
+	jsr _zsm_setmem_p1 ; first part of header
+	bcs end
+
+	jsr _zsm_setmem_p2 ; OPM/PSG channel masks
+
+	ldx prio2
+
+	jsr _zsm_setmem_p3 ; PCM table setup
+
+	ldx prio
+	lda #$80
+	sta prio_ondeck,x
+end:
+	RESTORE_ZP_PTR
+	rts
+prio:
+	.byte 0
+prio2:
+	.byte 0
+.endproc
+
 
 ;...............
 ; _zero_shadow :
@@ -3169,12 +3427,14 @@ end:
 ; Arguments: .X = priority
 ; Returns: (none)
 ; Preserves: .X
-; Allowed in interrupt handler: no
+; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
 ;
 ; performs the calculation tick_rate_*/60 and stores in speed_*
 ;
 .proc _calculate_speed: near
+	php
+	sei
 	stx prio
 	; set speed to 60 if ZSM says it's zero
 	lda tick_rate_l,x
@@ -3231,6 +3491,7 @@ l2:
 	lda tmp2+2
 	sta speed_h,x
 
+	plp
 	rts
 prio:
 	.byte 0
@@ -3263,12 +3524,12 @@ gnb2:
 	rts
 
 times_8:
-.repeat NUM_PRIORITIES, i
+.repeat NUM_PRIORITIES*2, i
 	.byte i*8
 .endrepeat
 
 times_16:
-.repeat NUM_PRIORITIES, i
+.repeat NUM_PRIORITIES*2, i
 	.byte i*16
 .endrepeat
 

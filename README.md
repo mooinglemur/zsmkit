@@ -279,6 +279,34 @@ Note: If you expect to play PCM sounds, either in songs or as ZCMs, you will sti
 Calling `zsm_init_engine` will reset this value to 60.
 
 ---
+#### `zsm_set_ondeck_bank`
+```
+Inputs: .X = priority, .A = RAM bank
+```
+Call this prior to calling `zsm_set_ondeck_mem`.
+
+This function expects the RAM bank where the ZSM data starts. After calling this routine, call `zsm_set_onbank_mem` to finish the setup of the "on deck" ZSM data for a priority slot.
+
+---
+#### `zsm_set_ondeck_mem`
+```
+Inputs: .X = priority, .A .Y = memory location (lo hi)
+Preparatory routine: `zsm_set_ondeck_bank`
+```
+Prior to calling, call `zsm_set_ondeck_bank` to set the bank where the ZSM data starts.
+
+This function sets up the song pointers and parses the header based on a ZSM that was previously loaded into RAM. If the song is deemed valid, it populates the on-deck data for this priority slot.
+
+The on-deck song is simply the ZSM that will play once the active song completes.  If the active song is configured to loop, it will loop as normal.  It can be useful to use this mechanism with a looping song as an event-based song or musical section switch.  If the loop flag is cleared with the `zsm_setloop` call, the on-deck song will become active once the active song ends.
+
+---
+#### `zsm_clear_ondeck`
+```
+Inputs: .X = priority
+```
+This function clears the on-deck song previously set by `zsm_set_ondeck_mem`.  When the active song ends, the priority will stop playback as normal.
+
+---
 
 
 ### API calls for main part of the program (ZCM)
