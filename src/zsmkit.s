@@ -1456,8 +1456,7 @@ opmgrab:
 	sta opm_priority,y
 	bra opmnext
 opmvoiceoff:
-	lda #$80
-	sta recheck_priorities
+	inc recheck_priorities
 opmnext:
 	ply
 	iny
@@ -1493,8 +1492,7 @@ psggrab:
 	sta vera_psg_priority,y
 	bra psgnext
 psgvoiceoff:
-	lda #$80
-	sta recheck_priorities
+	inc recheck_priorities
 psgnext:
 	ply
 	iny
@@ -2036,8 +2034,7 @@ opmloop:
 OVM = * -2
 	bne opmnext
 opmswitch:
-	lda #$80
-	sta opm_restore_shadow,x
+	inc opm_restore_shadow,x
 	dec opm_priority,x ; see if the next lower priority is active
 	bra opmloop
 opmnext:
@@ -2064,8 +2061,7 @@ psgloop:
 PVM = * -2
 	bne psgnext
 psgswitch:
-	lda #$80
-	sta vera_psg_restore_shadow,x
+	inc vera_psg_restore_shadow,x
 	dec vera_psg_priority,x ; see if the next lower priority is active
 	bra psgloop
 psgnext:
@@ -2865,8 +2861,7 @@ opmnext:
 	stz pcm_busy
 no_pcm_halt:
 	stz prio_active,x
-	lda #$80
-	sta recheck_priorities
+	inc recheck_priorities
 
 	rts
 .endproc
@@ -2918,8 +2913,7 @@ opmloop:
 	cmp prio
 	bcs nextopm
 opmvoice:
-	lda #$80
-	sta opm_restore_shadow,x
+	inc opm_restore_shadow,x
 	lda prio
 	sta opm_priority,x
 nextopm:
@@ -2943,8 +2937,7 @@ psgloop:
 	cmp prio
 	bcs nextpsg
 psgvoice:
-	lda #$80
-	sta vera_psg_restore_shadow,x
+	inc vera_psg_restore_shadow,x
 	lda prio
 	sta vera_psg_priority,x
 nextpsg:
