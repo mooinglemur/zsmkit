@@ -353,6 +353,7 @@ erasedone:
 .endproc
 
 .proc midi_send_byte: near
+	phx
 	pha
 	lda IOADDR
 	beq plarts
@@ -361,7 +362,6 @@ DEVICETYPE = * - 1
 	bmi parallel
 serial:
 	lda #LSR_THRE
-	phx
 	ldx #0
 :	dex
 	beq timeout
@@ -369,42 +369,32 @@ serial:
 IOsLSR = * - 2
 	beq :-
 timeout:
-	plx
 	pla
 	sta IO_BASE
 IOsTHR = * - 2
+	plx
 	rts
 plarts:
 	pla
+	plx
 	rts
 
 parallel:
-	phx
-	phy
-	ldx IOADDR
 	jsr _wait_pmidi_ready
 	pla
 	sta IO_BASE
 IOADDR = * - 2
-	ply
 	plx
 	rts
 .endproc
 
-.proc _delay_wait_pmidi_ready: near
-.repeat 3
-	php
-	plp
-.endrepeat
-	; fall through
-.endproc
-
 .proc _wait_pmidi_ready: near
-	ldy #0
+	ldx #0
 waitloop:
-    bit IO_BASE+1,x
+    bit PCTRL
+PCTRL = * - 2
     bvc pmidi_ready
-    dey
+    dex
     bne waitloop
 pmidi_ready:
     rts
@@ -963,7 +953,8 @@ TC = *-1
 	; carry is already clear
 	adc PTR
 	sta PTR
-	lda tmp_inst
+	lda #$00
+tmp_inst = * - 1
 	adc PTR+1
 	sta PTR+1
 	jsr validate_pt
@@ -1099,9 +1090,6 @@ error_r:
 error:
 	stz pcm_busy
 	rts
-
-tmp_inst:
-	.byte 0
 .endproc
 
 ;......................
@@ -2282,7 +2270,8 @@ opmloop:
 	lda opm_restore_shadow,x
 	beq opmnext
 
-	ldy voice
+	ldy #$00
+voice = * - 1
 	jsr _opm_fast_release
 
 	ldx voice
@@ -2411,8 +2400,6 @@ psgnext:
 	bcc psgloop
 
 	rts
-voice:
-	.byte 0
 .endproc
 
 
@@ -2432,6 +2419,7 @@ voice:
 	cmp #$01
 	lda prio_playable,x
 	php
+	sei
 
 	lda loop_number_l,x
 	ldy loop_number_h,x
@@ -2558,9 +2546,7 @@ voice:
 ;
 ; Sets the priority to loop if carry is set, if clear, disables looping
 .proc zsm_setloop: near
-	php
 	lda #$80
-	plp
 	bcs :+
 	lda #$00
 :	sta loop_enable,x
@@ -3447,7 +3433,7 @@ end:
 ; zsm_midi_init :
 ;============================================================================
 ; Arguments: .A = MIDI device I/O base, or 0 to disable
-;            .Y = if zero, MIDI interface is serial
+;            .X = if zero, MIDI interface is serial
 ;                 if nonzero, MIDI has parallel interface (SAM2695)
 ;            .C = if set, all MIDI events are routed through callback
 ;                 if clear, MIDI events don't trigger a callback
@@ -3460,11 +3446,11 @@ end:
 	sei
 
 	sta midi_send_byte::IOADDR
-	tax
+	tay
 	jeq end
 	ror
 	sta midi_callback_enable
-	tya
+	txa
 	cmp #1
 	ror
 	sta midi_send_byte::DEVICETYPE
@@ -3472,43 +3458,43 @@ end:
 	bmi parallel_init
 serial_init:
     lda #LCR_DLAB
-    sta IO_BASE + sLCR, x
+    sta IO_BASE + sLCR, y
 
     lda #<MIDI_SERIAL_DIVISOR
-    sta IO_BASE + sDLL, x
+    sta IO_BASE + sDLL, y
 
     lda #>MIDI_SERIAL_DIVISOR
-    sta IO_BASE + sDLM, x
+    sta IO_BASE + sDLM, y
 
     lda #LCR_WLS8
-    sta IO_BASE + sLCR, x
+    sta IO_BASE + sLCR, y
 
     lda #(FCR_FIFOE | FCR_RFIFOR | FCR_XFIFOR)
-    sta IO_BASE + sFCR, x
+    sta IO_BASE + sFCR, y
 
     lda #(MCR_DTR | MCR_RTS)
-    sta IO_BASE + sMCR, x
+    sta IO_BASE + sMCR, y
 
     ; disable interrupts
-    stz IO_BASE + sIER, x
+	lda #0
+    sta IO_BASE + sIER, y
 
-    txa
+    tya
     clc
     adc #sLSR
     sta midi_send_byte::IOsLSR
-    txa
+    tya
     clc
     adc #sTHR
     sta midi_send_byte::IOsTHR
 
 	bra init_synth
 parallel_init:
+	iny
+	sty _wait_pmidi_ready::PCTRL
     jsr _wait_pmidi_ready
-    lda #$FF
-    sta IO_BASE+1,x
-    jsr _delay_wait_pmidi_ready
     lda #$3F
-    sta IO_BASE+1,x
+    sta IO_BASE,y
 init_synth:
 
 	lda #$ff
