@@ -28,10 +28,7 @@ It also has these features that ZSound currently lacks:
 * ZSM files with PCM tracks are now handled and their PCM data is played back
 * ZSM synchronization messages are passed into an optional callback routine
 * Uses YM chip detection routine in ROM >= R44 and redirects LFO reset writes to register $09 if the chip type is OPP/YM2164.
-
-These features are planned but not yet implemented
-
-* Feature to suspend specific channels for all priorities, allowing the channel/voice to be used outside of ZSMKit, such as simple in-game sound effects, for instance.
+* Ability to suspend use of individual PSG and YM2151 channels in order to use them outside of ZSMKit, even if the song playback would otherwise use them.  Useful for stealing channels for programmed sound effects.
 
 ## Support
 
@@ -164,9 +161,10 @@ Inside the callback, .X will be set to the priority, .Y will be set to the event
 |$02|any|Synchronization message from ZSM (sync type 0)|
 |$03|Signed byte: tuning offset in 256ths of a semitone|Song tuning change from ZSM (sync type 1)|
 |$10|(undefined)|On deck song has been promoted to active song|
+|$20|data|MIDI byte from ZSM|
 
 
-Since this callback happens in the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
+Since this callback happens in the tick, usually the interrupt handler, it is important that your program process the event and then return as soon as possible. In addition, your callback routine should not fire off any KERNAL calls, or update the screen.
 
 The callback does *not* need to take care to preserve any registers before returning, but the active RAM and ROM bank must be set to the values they were upon entry.
 

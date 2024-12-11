@@ -73,7 +73,9 @@ See the [quick reference](..) in the README of the parent directory of this one 
     zsm_set_ondeck_bank  = $A05D ; PER-PRIORITY: set next song's bank <- do this first
     zsm_set_ondeck_mem   = $A060 ; PER-PRIORITY: set next song's address <- do this second
     zsm_clear_ondeck     = $A063 ; PER-PRIOTITY: clear queued on-deck song
-
+    zsm_midi_init        = $A066 ; GLOBAL: initialize/set params for MIDI out support
+    zsm_psg_suspend      = $A069 ; PER-VOICE: suspend ZSMKit's use of VERA PSG channel
+    zsm_opm_suspend      = $A06C ; PER-VOICE: suspend ZSMKit's use of FM channel
 
 ```
 

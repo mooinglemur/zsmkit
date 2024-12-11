@@ -14,6 +14,32 @@ NUM_OPM_PRIORITIES = 4
 
 PTR = $02 ; temporary ZP used for indirect addressing, preserved and restored
 
+.define IO_BASE $9F00
+.define MIDI_SERIAL_DIVISOR 32
+
+; Define the registers of the TL16C2550PFBR
+.define sRHR 0 ; Receive Holding Register
+.define sTHR 0 ; Transmit Holding Register
+.define sIER 1 ; Interrupt Enable Register
+.define sFCR 2 ; FIFO Control Register
+.define sLCR 3 ; Line Control Register
+.define sMCR 4 ; Modem Control Register
+.define sLSR 5 ; Line Status Register
+.define sMSR 6 ; Modem Status Register
+.define sDLL 0 ; Divisor Latch LSB
+.define sDLM 1 ; Divisor Latch MSB
+
+; Define some bit masks for the registers
+.define LCR_DLAB $80 ; Divisor Latch Access Bit
+.define LCR_WLS8 $03 ; Word Length Select: 8 bits
+.define FCR_FIFOE $01 ; FIFO Enable
+.define FCR_RFIFOR $02 ; Receiver FIFO Reset
+.define FCR_XFIFOR $04 ; Transmitter FIFO Reset
+.define MCR_DTR $01 ; Data Terminal Ready
+.define MCR_RTS $02 ; Request To Send
+.define LSR_THRE $20 ; Transmitter Holding Register Empty
+.define LSR_DR $01 ; Data Ready
+
 .segment "JMPTBL"
 jmp zsm_init_engine      ; $A000
 jmp zsm_tick             ; $A003
@@ -49,6 +75,9 @@ jmp zsmkit_version       ; $A05A
 jmp zsm_set_ondeck_bank  ; $A05D
 jmp zsm_set_ondeck_mem   ; $A060
 jmp zsm_clear_ondeck     ; $A063
+jmp zsm_midi_init        ; $A066
+jmp zsm_psg_suspend      ; $A069
+jmp zsm_opm_suspend      ; $A06C
 
 .segment "ZSMKITBSS"
 _ZSM_BSS_START := *
@@ -213,6 +242,18 @@ ym_chip_type:            .res 1
 int_rate:                .res 1
 int_rate_frac:           .res 1
 
+; flag for whether MIDI events cause a callback (GLOBAL)
+midi_callback_enable:    .res 1
+
+; Bitfield for MIDI events, so that we know which
+; channels have had note-on events since the last time
+; playback was stopped on the priority.
+;
+; That way, stopping or pausing playback will send
+; All Sound Off only on the channels we have used
+midi_channel_mask_l:     .res NUM_PRIORITIES
+midi_channel_mask_h:     .res NUM_PRIORITIES
+
 ; "fetch" state
 fetch_bank:              .res 1
 
@@ -309,6 +350,64 @@ erasedone:
 
 	plp
 	rts
+.endproc
+
+.proc midi_send_byte: near
+	pha
+	lda IOADDR
+	beq plarts
+	lda #$00
+DEVICETYPE = * - 1
+	bmi parallel
+serial:
+	lda #LSR_THRE
+	phx
+	ldx #0
+:	dex
+	beq timeout
+	bit IO_BASE
+IOsLSR = * - 2
+	beq :-
+timeout:
+	plx
+	pla
+	sta IO_BASE
+IOsTHR = * - 2
+	rts
+plarts:
+	pla
+	rts
+
+parallel:
+	phx
+	phy
+	ldx IOADDR
+	jsr _wait_pmidi_ready
+	pla
+	sta IO_BASE
+IOADDR = * - 2
+	ply
+	plx
+	rts
+.endproc
+
+.proc _delay_wait_pmidi_ready: near
+.repeat 3
+	php
+	plp
+.endrepeat
+	; fall through
+.endproc
+
+.proc _wait_pmidi_ready: near
+	ldy #0
+waitloop:
+    bit IO_BASE+1,x
+    bvc pmidi_ready
+    dey
+    bne waitloop
+pmidi_ready:
+    rts
 .endproc
 
 ;.............
@@ -1592,9 +1691,9 @@ PS = *-2
 	bra nextnote
 iseod:
 	lda loop_enable,x
-	bne islooped
+	jne islooped
 	lda prio_ondeck,x
-	bne ondeck
+	jne ondeck
 	stz prio_active,x
 	ldy #$00
 	; A == 0 already
@@ -1609,22 +1708,27 @@ GETZSMBYTEC = * -2
 	cmp #$80
 	bcc ischip
 	cmp #$c0
-	bcc issync
+	jcc issync
 	; channel 3, future use, ignore
 ischip: ; external chip, ignore
 	and #$3f
-	; eat the data bytes, up to 63 of them
 	tay
 	beq nextnote
-:	jsr advanceptr
+	jsr advanceptr
+	jsr getzsmbyte
+GETZSMBYTEL = * - 2
 	dey
-	bne :-
+	cmp #1
+	jeq ismidi ; we don't process chip type #2 here
+eat_chipdata: ; unrecognized chip device
+	jsr advanceptr
+	dey
+	bne eat_chipdata
 	bra nextnote
 isopm:
 	and #$3f
 	tay
-	lda prio
-	cmp #NUM_OPM_PRIORITIES
+	cpx #NUM_OPM_PRIORITIES
 	jcs skip_opm
 opmloop:
 	jsr advanceptr
@@ -1642,7 +1746,9 @@ GETZSMBYTEE = * -2
 	sta opm_shadow,x ; operand is overwritten at sub entry
 OS = *-1
 	phy
+	pha
 	jsr _ym_write
+	pla
 	ply
 	cpx #$08 ; key on/off
 	beq savekey
@@ -1763,6 +1869,40 @@ GETZSMBYTEK = * -2
 	bne endpcm
 	sta Vera::Reg::AudioRate
 	bra endpcm
+ismidi:
+	jsr advanceptr
+	jsr getzsmbyte
+GETZSMBYTEM = * - 2
+	jsr midi_send_byte
+	phy
+	bit midi_callback_enable
+	bpl after_callback
+	ldy #$20
+	pha
+	jsr _callback
+	pla
+after_callback:
+	cmp #$90
+	bcc after_mask_update
+	cmp #$a0
+	bcs after_mask_update
+	cmp #$98
+	and #$07
+	tay
+	lda two_to_the_n,y
+	bcc lower_mask
+upper_mask:
+	ora midi_channel_mask_h,x
+	sta midi_channel_mask_h,x
+	bra after_mask_update
+lower_mask:
+	ora midi_channel_mask_l,x
+	sta midi_channel_mask_l,x
+after_mask_update:
+	ply
+	dey
+	bne ismidi
+	jmp nextnote
 advanceptr:
 	inc PTR
 	bne :+
@@ -1933,9 +2073,11 @@ selfmod_targets:
 fixups_l:
 	.lobytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
 	.lobytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
+	.lobytes _prio_tick::GETZSMBYTEL, _prio_tick::GETZSMBYTEM
 fixups_h:
 	.hibytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
 	.hibytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
+	.hibytes _prio_tick::GETZSMBYTEL, _prio_tick::GETZSMBYTEM
 fixup_targets:
 	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
 	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
@@ -1950,6 +2092,8 @@ fixup_targets:
 	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
 	.byte <(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
 	.byte <(_load_fifo - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
 .endproc
 
 
@@ -2795,9 +2939,39 @@ opmnext:
 	sta Vera::Reg::AudioCtrl
 	stz pcm_busy
 no_pcm_halt:
+	ldy #7
+midiloop:
+	lda two_to_the_n,y
+	and midi_channel_mask_l,x
+	beq after_low
+	; release notes on MIDI channel 1-8
+	tya
+	jsr _midi_all_notes_off
+after_low:
+	lda two_to_the_n,y
+	and midi_channel_mask_l,x
+	beq after_high
+	tya
+	clc
+	adc #8
+	jsr _midi_all_notes_off
+after_high:
+	dey
+	bpl midiloop
+
 	stz prio_active,x
 	inc recheck_priorities
 
+	rts
+.endproc
+
+.proc _midi_all_notes_off: near
+	ora #$b0
+	jsr midi_send_byte
+	lda #120
+	jsr midi_send_byte
+	lda #0
+	jsr midi_send_byte
 	rts
 .endproc
 
@@ -3182,6 +3356,10 @@ TMPA = * - 1
 :
 	ldx prio
 
+	stz midi_channel_mask_l,x
+	stz midi_channel_mask_h,x
+
+
 	jsr _zsm_setmem_p1 ; first part of header
 	bcs end
 
@@ -3265,6 +3443,136 @@ end:
 	rts
 .endproc
 
+;................
+; zsm_midi_init :
+;============================================================================
+; Arguments: .A = MIDI device I/O base, or 0 to disable
+;            .Y = if zero, MIDI interface is serial
+;                 if nonzero, MIDI has parallel interface (SAM2695)
+;            .C = if set, all MIDI events are routed through callback
+;                 if clear, MIDI events don't trigger a callback
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc zsm_midi_init: near
+	php
+	sei
+
+	sta midi_send_byte::IOADDR
+	tax
+	jeq end
+	ror
+	sta midi_callback_enable
+	tya
+	cmp #1
+	ror
+	sta midi_send_byte::DEVICETYPE
+
+	bmi parallel_init
+serial_init:
+    lda #LCR_DLAB
+    sta IO_BASE + sLCR, x
+
+    lda #<MIDI_SERIAL_DIVISOR
+    sta IO_BASE + sDLL, x
+
+    lda #>MIDI_SERIAL_DIVISOR
+    sta IO_BASE + sDLM, x
+
+    lda #LCR_WLS8
+    sta IO_BASE + sLCR, x
+
+    lda #(FCR_FIFOE | FCR_RFIFOR | FCR_XFIFOR)
+    sta IO_BASE + sFCR, x
+
+    lda #(MCR_DTR | MCR_RTS)
+    sta IO_BASE + sMCR, x
+
+    ; disable interrupts
+    stz IO_BASE + sIER, x
+
+    txa
+    clc
+    adc #sLSR
+    sta midi_send_byte::IOsLSR
+    txa
+    clc
+    adc #sTHR
+    sta midi_send_byte::IOsTHR
+
+	bra init_synth
+parallel_init:
+    jsr _wait_pmidi_ready
+    lda #$FF
+    sta IO_BASE+1,x
+    jsr _delay_wait_pmidi_ready
+    lda #$3F
+    sta IO_BASE+1,x
+init_synth:
+
+	lda #$ff
+    jsr midi_send_byte
+
+    ldx #0
+loop1:
+	stx PART
+    txa
+    ora #$10
+    sta part_byte1
+    txa
+    ora #$20
+    sta part_byte2
+	txa
+	ora #$B0
+	sta ctrl_byte1
+	lda #$47
+	sec
+	sbc PART
+	sta checksum1
+	adc #$17
+	sta checksum2
+
+    ldy #0
+loop2:
+    lda init_string,y
+    cmp #$ff
+    beq l2e
+    jsr midi_send_byte
+    iny
+    bra loop2
+l2e:
+	ldx #$00
+PART = * - 1
+    inx
+    cpx #16
+    bcc loop1
+end:
+	plp
+	rts
+init_string:
+sysex1:
+    .byte $F0,$41,$00,$42,$12,$40
+part_byte1:
+    .byte $10
+    .byte $1F,$4A
+checksum1:
+    .byte $57
+    .byte $F7
+sysex2:
+    .byte $F0,$41,$00,$42,$12,$40
+part_byte2:
+    .byte $20
+    .byte $41,$00
+checksum2:
+    .byte $7F
+    .byte $F7
+ctrl_byte1:
+	.byte $B0
+	.byte 74,0,71,0,99,1,98,21,6,0
+eox:
+    .byte $FF
+.endproc
 
 ;...............
 ; _zero_shadow :
@@ -3301,6 +3609,103 @@ end:
 	bne :-
 end:
 	plx
+	rts
+.endproc
+
+;...................
+; zsm_opm_suspend  :
+;============================================================================
+; Arguments: .Y = voice
+;            .C = if set, suspend voice
+;                 if clear, release voice
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc zsm_opm_suspend: near
+	php
+	sei
+	bcc release
+
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0a
+	sta X16::Reg::ROMBank
+
+	phy
+
+	jsr _opm_fast_release
+
+	pla
+
+	ldx #0
+	jsr ym_setatten
+
+	tay
+	pla
+	sta X16::Reg::ROMBank
+
+	lda #$fe
+	bra done
+release:
+	lda opm_priority,y
+	cmp #$fe
+	bne end
+	lda #(NUM_OPM_PRIORITIES-1)
+done:
+	sta opm_priority,y
+	inc recheck_priorities
+end:
+	plp
+	rts
+.endproc
+
+
+;...................
+; zsm_psg_suspend  :
+;============================================================================
+; Arguments: .Y = voice
+;            .C = if set, suspend voice
+;                 if clear, release voice
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc zsm_psg_suspend: near
+	php
+	sei
+	bcc release
+
+	lda X16::Reg::ROMBank
+	pha
+	lda #$0a
+	sta X16::Reg::ROMBank
+
+	phy
+
+	tya
+	ldx #0
+	jsr psg_setvol
+
+	pla
+	ldx #0
+	jsr psg_setatten
+
+	pla
+	sta X16::Reg::ROMBank
+
+	lda #$fe
+	bra done
+release:
+	lda vera_psg_priority,y
+	cmp #$fe
+	bne end
+	lda #(NUM_PRIORITIES-1)
+done:
+	sta vera_psg_priority,y
+	inc recheck_priorities
+end:
+	plp
 	rts
 .endproc
 
@@ -3423,6 +3828,11 @@ times_64:
 times_64h:
 .repeat NUM_PRIORITIES, i
 	.byte >(i*64)
+.endrepeat
+
+two_to_the_n:
+.repeat 8, i
+	.byte (1 << i)
 .endrepeat
 
 ; ZSound-derived FIFO-fill LUTs

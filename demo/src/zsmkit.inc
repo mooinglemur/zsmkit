@@ -1,3 +1,7 @@
+; This "include" file can be imported into assembly projects.
+; To call any of these routines, first, switch to the bank where the code is loaded
+; then jsr to the routine
+
 zsm_init_engine      = $A000 ; GLOBAL: initialize the ZSMKit engine
 zsm_tick             = $A003 ; GLOBAL: process one tick of music data
 zsm_play             = $A006 ; PER-PRIORITY: start playback
@@ -32,3 +36,6 @@ zsmkit_version       = $A05A ; GLOBAL: get the ZSMKit version
 zsm_set_ondeck_bank  = $A05D ; PER-PRIORITY: set next song's bank <- do this first
 zsm_set_ondeck_mem   = $A060 ; PER-PRIORITY: set next song's address <- do this second
 zsm_clear_ondeck     = $A063 ; PER-PRIOTITY: clear queued on-deck song
+zsm_midi_init        = $A066 ; GLOBAL: initialize/set params for MIDI out support
+zsm_psg_suspend      = $A069 ; PER-VOICE: suspend ZSMKit's use of VERA PSG channel
+zsm_opm_suspend      = $A06C ; PER-VOICE: suspend ZSMKit's use of FM channel
