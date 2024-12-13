@@ -243,6 +243,7 @@ int_rate:                .res 1
 int_rate_frac:           .res 1
 
 ; flag for whether MIDI events cause a callback (GLOBAL)
+; only bit 7 is checked
 midi_callback_enable:    .res 1
 
 ; Bitfield for MIDI events, so that we know which

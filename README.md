@@ -84,6 +84,26 @@ Inputs: .X .Y = (lo hi) Low RAM address of 256 bytes of data that ZSMKit will us
 This routine *must* be called once before any other library routines are called in order to initialize the state of the engine.
 
 ---
+#### `zsm_midi_init`
+```
+Inputs: .A = MIDI device I/O base offset from $9F00, 0 to disable
+        .X = serial/parallel toggle
+        .C = callback flag
+```
+This function initializes ZSMKit's MIDI event handler and informs ZSMKit of the IO address of the MIDI device.
+
+MIDI events are encoded in ZSMs as EXTCMD expansion audio blocks with Chip ID 1 (MIDI 1).  ZSMKit does not process events for Chip ID 2 (MIDI 2).
+
+If .A = 0, MIDI device output is disabled.
+
+If .X = 0, the MIDI device is a serial UART (16C550 compatible), in which case .A should always be a multiple of 8.
+If .X is nonzero, the MIDI device is a SAM2695 or similar with two adjacent memory-mapped registers.
+
+If carry is set, all MIDI events are routed through the callback with event type $20. The callback will receive every byte as an individual callback.  The callback will be called for MIDI events even if device output is disabled (.A = 0).
+
+If carry is clear, MIDI events will not be routed through the callback.
+
+---
 #### `zsm_setbank`
 ```
 Inputs: .X = priority, .A = RAM bank
@@ -305,6 +325,117 @@ The on-deck song is simply the ZSM that will play once the active song completes
 Inputs: .X = priority
 ```
 This function clears the on-deck song previously set by `zsm_set_ondeck_mem`.  When the active song ends, the priority will stop playback as normal.
+
+---
+#### `zsm_getloop`
+```
+Inputs: .X = priority
+Outputs: .C = looped flag, .A = bank, .X .Y (lo hi) = address
+```
+If the requested priority is playable and has a loop point, this function will return the address and bank of the loop point in registers, with carry clear.
+
+If the priority is not playable or not looped, the function will return with carry set, and .A, .X, and .Y will be undefined.
+
+---
+#### `zsm_getptr`
+```
+Inputs: .X = priority
+Outputs: .C = looped flag, .A = bank, .X .Y (lo hi) = address
+```
+If the requested priority is playable, this function will return the address and bank of the playback cursor in registers, with carry clear.
+
+If the priority is not playable, the function will return with carry set, and .A, .X, and .Y will be undefined.
+
+---
+#### `zsm_getksptr`
+```
+Inputs: .X = priority
+Outputs: .X .Y (lo hi) = address
+```
+
+This function returns a pointer to the location of the OPM KON shadow inside ZSMKit's RAM bank.
+The KON shadow is an 8-byte region of memory which contains the most recent KON event processed for each of the eight OPM channels in the requested priority.  The first byte is for OPM channel 0, and the last byte is for channel 7.
+
+The format of each shadow entry looks like this:
+
+<table>
+  <tr>
+    <td>7</td>
+    <td>6</td>
+    <td>5</td>
+    <td>4</td>
+    <td>3</td>
+    <td>2</td>
+    <td>1</td>
+    <td>0</td>
+  </tr>
+  <tr>
+    <td> - </td>
+    <td>C2</td>
+    <td>M2</td>
+    <td>C1</td>
+    <td>M1</td>
+    <td colspan="3">Channel</td>
+  </tr>
+</table>
+
+If any of the M1, C1, M2, or C2 bits are set, the key has been "pressed", but if all of those bits are clear, then the key is "released".
+
+The primary use case is for player visualizations.
+
+---
+#### `zsm_getosptr`
+```
+Inputs: .X = priority
+Outputs: .X .Y (lo hi) = address
+```
+
+This function returns a pointer to the OPM shadow inside ZSMKit's RAM bank.
+The OPM shadow is a 256-byte region of memory which contains the most recent register write for the OPM chip in the requested priority.  Regardless of whether the priority owns the channel, the shadow is updated with the intended register write, whether or not it was written to the chip in real time.
+
+Internally, ZSMKit uses the OPM shadow to manage suspension and restoration of channel state.
+
+Exposing the memory location via this function is mainly useful for player visualizations.
+
+---
+#### `zsm_getpsptr`
+```
+Inputs: .X = priority
+Outputs: .X .Y (lo hi) = address
+```
+
+This function returns a pointer to the VERA PSG shadow inside ZSMKit's RAM bank.
+The PSG shadow is a 64-byte region of memory which contains the most recent register write for the VERA PSG in the requested priority.  Regardless of whether the priority owns the channel, the shadow is updated with the intended register write, whether or not it was written to the chip in real time.
+
+Internally, ZSMKit uses the PSG shadow to manage suspension and restoration of channel state.
+
+Exposing the memory location via this function is mainly useful for player visualizations.
+
+---
+#### `zsm_psg_suspend`
+```
+Inputs: .Y = channel (0-15)
+        .C = if set, suspend; if clear, release
+```
+
+This function suspends or restores ZSMKit's use of a VERA PSG channel.
+
+This action is GLOBAL, and will prevent ZSMKit from touching registers for this channel for as long as it's suspended.
+
+Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
+
+---
+#### `zsm_opm_suspend`
+```
+Inputs: .Y = channel (0-7)
+        .C = if set, suspend; if clear, release
+```
+
+This function suspends or restores ZSMKit's use of an OPM channel.
+
+This action is GLOBAL, and will prevent ZSMKit from touching registers for this channel for as long as it's suspended.
+
+Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
 
 ---
 
