@@ -32,7 +32,7 @@ It also has these features that ZSound currently lacks:
 
 ## Support
 
-The main discussion area for help with ZSMKit is in the [Commander X16 Discord server](https://discord.gg/nS2PqEC) in the [ZSMKit thread](https://discord.com/channels/547559626024157184/1118414097323663370).
+The main discussion area for help with ZSMKit is in the [Commander X16 Discord server](https://discord.gg/nS2PqEC) in the [ZSMKit channel](https://discord.com/channels/547559626024157184/1315189964077531177).
 
 ## Priority system
 
@@ -90,14 +90,14 @@ Inputs: .A = MIDI device I/O base offset from $9F00, 0 to disable
         .X = serial/parallel toggle
         .C = callback flag
 ```
-This function initializes ZSMKit's MIDI event handler and informs ZSMKit of the IO address of the MIDI device.
+This function initializes ZSMKit's MIDI event handler and informs ZSMKit of the IO address of the MIDI device.  If this function is never called after `zsm_init_engine`, MIDI events in ZSMs are ignored.
 
 MIDI events are encoded in ZSMs as EXTCMD expansion audio blocks with Chip ID 1 (MIDI 1).  ZSMKit does not process events for Chip ID 2 (MIDI 2).
 
 If .A = 0, MIDI device output is disabled.
 
 If .X = 0, the MIDI device is a serial UART (16C550 compatible), in which case .A should always be a multiple of 8.
-If .X is nonzero, the MIDI device is a SAM2695 or similar with two adjacent memory-mapped registers.
+If .X is nonzero, the MIDI device is a SAM2695 or similar with a parallel interface, with two adjacent memory-mapped registers.
 
 If carry is set, all MIDI events are routed through the callback with event type $20. The callback will receive every byte as an individual callback.  The callback will be called for MIDI events even if device output is disabled (.A = 0).
 
@@ -324,7 +324,7 @@ The on-deck song is simply the ZSM that will play once the active song completes
 ```
 Inputs: .X = priority
 ```
-This function clears the on-deck song previously set by `zsm_set_ondeck_mem`.  When the active song ends, the priority will stop playback as normal.
+This function clears the on-deck song previously set by `zsm_set_ondeck_mem`.  If the priority is playing, the priority will stop playback as normal once the song ends.
 
 ---
 #### `zsm_getloop`
@@ -442,7 +442,7 @@ Suspension is useful to allow for programmed sound effects to play independent o
 
 ### API calls for main part of the program (ZCM)
 
-ZCM files are PCM data files with an 8-byte header indicating their bit depth, number of channels, and length. In order for ZSMKit to play them, they must be loaded into memory first, and their location in memory given to ZSMKit via the `zcm_setmem` routine. ZSMKit can track up to 32 ZCMs in memory, slots 0-31, though it's likely you'd exhaust high RAM before having that many loaded at once.
+ZCM files are PCM data files with an 8-byte header indicating their bit depth, number of channels, and length. In order for ZSMKit to play them, they must be loaded into memory first, and their location in memory given to ZSMKit via the `zcm_setbank` and `zcm_setmem` routines. ZSMKit can track up to 32 ZCMs in memory, slots 0-31, though it's likely you'd exhaust high RAM before having that many loaded at once.
 
 #### `zcm_setbank`
 ```
