@@ -467,6 +467,9 @@ zsmkit_clearisr:
 	rts
 	php
 	sei
+
+	PRESERVE_ZP_PTR
+
 	lda #$60
 	sta zsmkit_clearisr ; gate zsmkit_clearisr
 	lda #$ea
@@ -474,10 +477,19 @@ zsmkit_clearisr:
 	lda lowram
 	clc
 	adc #<(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	sta X16::Vec::IRQVec
+	sta PTR
 	lda lowram+1
 	adc #>(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	sta PTR+1
+
+	lda (PTR)
+	sta X16::Vec::IRQVec
+	ldy #1
+	lda (PTR),y
 	sta X16::Vec::IRQVec+1
+
+	RESTORE_ZP_PTR
+
 	plp
 	rts
 
