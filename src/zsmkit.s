@@ -2166,7 +2166,7 @@ BK = * - 1
 	plp
 	bcs :+
 	lda #$00
-	sta loop_enable,x
+:	sta loop_enable,x
 
 	RESTORE_BANK
 	rts
