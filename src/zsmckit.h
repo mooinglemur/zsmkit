@@ -11,23 +11,29 @@ typedef unsigned int u16;
 #define MUSIC_ONLY 2
 
 // These values are used to interpret the state of a priority
-#define PLAYING 1
+#define PLAYING    1
 #define UNPLAYABLE 2
 
+// This structure is used as return value from zsm_getloop and zsm_getptr
 typedef struct _zsm_priority_info {
 	u8 bank;
 	u16 address;
 };
 
+// This structure is used as return value from zsm_getstate
 typedef struct _zsm_priority_state {
 	u8 state;
 	u16 loopcounter;
-}
+};
 
-//    void callbackfunction(uint8_t eventtype, uint8_t priority, uint8_t paramval)
-// eventtype = .Y - priority = .X - paramval = .A
-typedef void(*zsm_callback)(uint8_t, uint8_t, uint8_t);
+// This structure is used as return value from zsmkit_version
+typedef struct _zsm_version {
+	u8 majorVersion;
+	u8 minorVersion;
+};
 
+// void callbackfunction(u8 eventtype, u8 priority, u8 paramval)
+typedef void(*zsm_callback)(u8, u8, u8);
 
 extern void			  __fastcall__ zsm_init_engine(u16 addr, u8 bank);
 extern void			  __fastcall__ zsm_tick(u8 what);
@@ -59,7 +65,7 @@ extern void			  __fastcall__ zcm_play(u8 slot, u8 volume);
 extern void			  __fastcall__ zcm_stop();
 extern void			  __fastcall__ zsmkit_setisr();
 extern void			  __fastcall__ zsmkit_clearisr();
-extern u16			  __fastcall__ zsmkit_version();
+extern struct _zsm_version	  __fastcall__ zsmkit_version();
 extern void			  __fastcall__ zsm_set_ondeck_bank(u8 priority, u8 bank);
 extern void			  __fastcall__ zsm_set_ondeck_mem(u8 priority, u16 addr);
 extern void			  __fastcall__ zsm_clear_ondeck(u8 priority);

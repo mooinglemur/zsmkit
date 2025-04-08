@@ -26,9 +26,17 @@ u16 load_headerless(u8 dev, u16 addr, char* name) {
 }
 
 /*
+  This is the prototype of a callback function
+*/
+// void mycbfunc(u8 eventtype, u8 priority, u8 paramval) {
+// }
+
+/*
   Entry point of the program
 */
 int main() {
+	struct _zsm_version zsmver;
+
 	// Switch back to Upper/GFX font (cc65 switches to mixedcase font)
 	cbm_k_bsout(CH_FONT_UPPER);
 	printf("loading canyon.zsm into ram...\n");
@@ -49,14 +57,22 @@ int main() {
 	zsm_setbank(0, 2);
 	zsm_setmem(0, 0xA000);
 
+	// Get version of ZSMkit used and print it
+	zsmver = zsmkit_version();
+	printf("version %d.%d\n", zsmver.majorVersion, zsmver.minorVersion);
+
 	// Wait for the user to press return before starting playback
 	printf("press return to start playing the song\n");
 	cbm_k_basin();
 	zsm_play(0);
 
+//	zsm_setcb(0, mycbfunc);
+
 	// Wait for user to press return again to stop playback and exit program
 	printf("\npress return to stop playback and exit\n");
 	cbm_k_basin();
+
+
 	zsm_stop(0);
 
 	return 0;
