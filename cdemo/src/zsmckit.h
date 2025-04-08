@@ -41,7 +41,9 @@ extern void			  __fastcall__ zsm_play(u8 priority);
 extern void			  __fastcall__ zsm_stop(u8 priority);
 extern void			  __fastcall__ zsm_rewind(u8 priority);
 extern void			  __fastcall__ zsm_close(u8 priority);
+						 // Returns all 0's if not playable or not looped
 extern struct _zsm_priority_info  __fastcall__ zsm_getloop(u8 priority);
+						// Returns all 0's if priority not playable
 extern struct _zsm_priority_info  __fastcall__ zsm_getptr(u8 priority);
 extern u16			  __fastcall__ zsm_getksptr(u8 priority);
 extern void			  __fastcall__ zsm_setbank(u8 priority, u8 bank);
