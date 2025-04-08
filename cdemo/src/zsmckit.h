@@ -28,7 +28,6 @@ typedef struct _zsm_priority_state {
 // eventtype = .Y - priority = .X - paramval = .A
 typedef void(*zsm_callback)(u8, u8, u8);
 
-
 extern void			  __fastcall__ zsm_init_engine(u16 addr, u8 bank);
 extern void			  __fastcall__ zsm_tick(u8 what);
 extern void			  __fastcall__ zsm_play(u8 priority);

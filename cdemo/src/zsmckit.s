@@ -42,29 +42,80 @@
 .export _zsm_psg_suspend
 .export _zsm_opm_suspend
 
-; These values are used to tell zsm_tick what to update
-MUSIC_PCM  = 0
-PCM_ONLY   = 1
-MUSIC_ONLY = 2
+zsm_bank: .byte 0
+RAM_BANK = $00
 
-; These values are used to interpret the state of a priority
-PLAYING    = 1
-UNPLAYABLE = 2
+_zsm_init_engine:
+	sta	zsm_bank		; Save Bank where ZSMkit is loaded
+	sta	RAM_BANK
+	jsr	popa			; Get low part of address where ZSMkit is loaded
+	tax
+	jsr	popa			; Get hi part of address where ZSM kit is loaded
+	tay
+	jmp	zsm_init_engine
 
-_zsm_init_engine = zsm_init_engine
-_zsm_tick = zsm_tick
-_zsm_play = zsm_play
-_zsm_stop = zsm_stop
-_zsm_rewind = zsm_rewind
-_zsm_close = zsm_close
+_zsm_tick:
+	pha				; Save parameter on stack while correct bank is set
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	pla				; Restore parameter from stack
+	jmp	zsm_tick
+
+_zsm_play:
+	tax				; Move priority to X
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jmp	zsm_play
+
+_zsm_stop:
+	tax				; Move priority to X
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jmp	zsm_stop
+
+_zsm_rewind:
+	tax				; Move priority to X
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jmp	zsm_rewind
+
+_zsm_close:
+	tax				; Move priority to X
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jmp	zsm_close
+
 _zsm_getloop = zsm_getloop
 _zsm_getptr = zsm_getptr
 _zsm_getksptr = zsm_getksptr
-_zsm_setbank = zsm_setbank
-_zsm_setmem =  zsm_setmem
+_zsm_setbank:
+	pha				; Save priority bank on stack	
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jsr	popa			; Get priority ID into X
+	tax
+	pla				; Restore priority bank from stack
+	jmp	zsm_setbank
+
+_zsm_setmem:
+	pha				; Save low part of address on stack
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	txa				; Move hi part of address into .Y
+	tay
+	jsr	popa			; Get priority ID into X
+	tax
+	pla				; Restore low part of address on stack
+	jmp	zsm_setmem
+
 _zsm_setatten = zsm_setatten
 _zsm_setcb = zsm_setcb
-_zsm_clearcb = zsm_clearcb
+_zsm_clearcb:
+	tax				; Move priority ID into X
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jmp	zsm_clearcb
+
 _zsm_getstate = zsm_getstate
 _zsm_setrate = zsm_setrate
 _zsm_getrate = zsm_getrate
@@ -79,7 +130,11 @@ _zcm_setbank = zcm_setbank
 _zcm_setmem = zcm_setmem
 _zcm_play = zcm_play
 _zcm_stop = zcm_stop
-_zsmkit_setisr = zsmkit_setisr
+_zsmkit_setisr:
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
+	jmp	zsmkit_setisr
+
 _zsmkit_clearisr = zsmkit_clearisr
 _zsmkit_version = zsmkit_version
 _zsm_set_ondeck_bank =  zsm_set_ondeck_bank
