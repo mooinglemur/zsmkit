@@ -76,6 +76,7 @@ See the [quick reference](..) in the README of the parent directory of this one 
     zsm_midi_init        = $A066 ; GLOBAL: initialize/set params for MIDI out support
     zsm_psg_suspend      = $A069 ; PER-VOICE: suspend ZSMKit's use of VERA PSG channel
     zsm_opm_suspend      = $A06C ; PER-VOICE: suspend ZSMKit's use of FM channel
+    zsm_pcm_suspend      = $A06F ; GLOBAL: suspend ZSMKit's use of PCM channel
 
 ```
 

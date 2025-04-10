@@ -78,6 +78,7 @@ jmp zsm_clear_ondeck     ; $A063
 jmp zsm_midi_init        ; $A066
 jmp zsm_psg_suspend      ; $A069
 jmp zsm_opm_suspend      ; $A06C
+jmp zsm_pcm_suspend      ; $A06F
 
 .segment "ZSMKITBSS"
 _ZSM_BSS_START := *
@@ -181,6 +182,7 @@ pcm_data_h:             .res NUM_PRIORITIES*2
 ; The prio that currently has a PCM event going
 ; $80 means ZCM is/was playing
 ; ZCM always takes over the PCM channel
+; unless suspended
 pcm_prio:               .res 1
 
 ; Set while playing.  Higher priorities can take over
@@ -787,6 +789,9 @@ end:
 ;
 ; Begins playback of a ZCM digital sample
 .proc zcm_play: near
+	bit pcm_busy
+	bvs end_n
+
 	and #$0f
 	ora #$80
 	sta VR
@@ -862,6 +867,7 @@ VR = * - 1
 	plp ; restore interrupt mask state
 end:
 	RESTORE_ZP_PTR
+end_n:
 	rts
 
 .endproc
@@ -880,8 +886,9 @@ end:
 	php
 	sei
 
-	lda pcm_busy
-	beq end ; nothing playing
+	bit pcm_busy
+	bpl end ; nothing playing
+	bvs end ; ZSMKit's use of PCM suspended
 
 	lda pcm_prio
 	bpl end ; not a ZCM playing
@@ -907,19 +914,22 @@ end:
 .proc _pcm_trigger_instrument: near
 	cmp pcm_inst_max,x
 	beq :+ ; ok
-	jcs error ; the last instrument known is a lower index than the one requested
+	bcs go_end ; the last instrument known is a lower index than the one requested
 :	tay
 	lda pcm_table_exists,x
-	jpl end
+	bpl go_end
 
-	PRESERVE_ZP_PTR
-
-	lda pcm_busy
-	beq not_busy
+	bit pcm_busy
+	bpl take_over
+	bvs go_end ; suspended
 
 	cpx pcm_prio
-	jcc end_r ; PCM is busy and we are lower priority
-not_busy:
+	bcs take_over
+go_end:
+	jmp end
+take_over:
+	PRESERVE_ZP_PTR
+
 	lda Vera::Reg::AudioCtrl
 	and #$3f
 	sta TC
@@ -1193,9 +1203,12 @@ validation:
 ; Checks to see if any PCM events are in progress, then calculates
 ; how many bytes to send to the FIFO, then does so
 .proc _pcm_player: near
-	ldx pcm_busy
-	jeq end ; nothing is playing
-
+	bit pcm_busy
+	bpl go_end ; nothing is playing
+	bvc continue ; not suspended
+go_end:
+	jmp end
+continue:
 	ldx Vera::Reg::AudioRate
 	stx RR ; self mod to restore the rate if we happen to zero it to do the
 	       ; initial load
@@ -1843,6 +1856,8 @@ GETZSMBYTEJ = * -2
 	sta pcm_ctrl_shadow,x
 	cpx pcm_prio
 	bne endpcm
+	bit pcm_busy
+	bvs endpcm
 	and #$0f
 	sec
 	sbc pcm_atten_shadow,x
@@ -2932,6 +2947,8 @@ opmnext:
 	ldx PR
 	cpx pcm_prio
 	bne no_pcm_halt
+	bit pcm_busy
+	bvs no_pcm_halt
 	lda Vera::Reg::AudioCtrl
 	and #$3f
 	ora #$80
@@ -3608,6 +3625,25 @@ eox:
 	bne :-
 end:
 	plx
+	rts
+.endproc
+
+;...................
+; zsm_pcm_suspend  :
+;============================================================================
+; Arguments: .C = if set, suspend ZSMKit's use of PCM
+;                 if clear, allow ZSMKit to use PCM
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc zsm_pcm_suspend: near
+	lda #$ff
+	sta pcm_prio
+	lda #$00
+	ror
+	lsr
+	sta pcm_busy
 	rts
 .endproc
 

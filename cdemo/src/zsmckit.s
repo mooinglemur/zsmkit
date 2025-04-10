@@ -40,6 +40,7 @@
 .export _zsm_midi_init
 .export _zsm_psg_suspend
 .export _zsm_opm_suspend
+.export _zsm_pcm_suspend
 
 zsm_bank: .byte 0
 RAM_BANK = $00
@@ -490,6 +491,13 @@ _zsm_opm_suspend:
 	tay
 	pla				; Restore suspend flag from stack and shift into C
 	lsr
+	jmp	zsm_opm_suspend
+
+; GLOBAL: suspend ZSMKit's use of VERA PCM
+_zsm_pcm_suspend:
+	lsr                 ; shift suspend flag into C
+	lda	zsm_bank		; Ensure correct RAM bank is selected before call
+	sta	RAM_BANK
 	jmp	zsm_opm_suspend
 
 ; ****** Callback functions that will call users callback function *******

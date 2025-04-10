@@ -438,6 +438,20 @@ This action is GLOBAL, and will prevent ZSMKit from touching registers for this 
 Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
 
 ---
+#### `zsm_pcm_suspend`
+```
+Inputs: .C = if set, suspend; if clear, release
+```
+
+This function suspends or restores ZSMKit's use of the VERA PCM channel.
+
+This action is GLOBAL, and will prevent ZSMKit from touching registers for this channel for as long as it's suspended.
+
+While PCM is suspended, ZSMKit will not play ZCM files either.
+
+Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
+
+---
 
 
 ### API calls for main part of the program (ZCM)

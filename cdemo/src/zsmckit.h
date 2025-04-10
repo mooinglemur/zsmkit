@@ -74,5 +74,6 @@ extern void			  __fastcall__ zsm_clear_ondeck(u8 priority);
 extern void			  __fastcall__ zsm_midi_init(u8 device_offset, u8 ser_par, u8 cb);
 extern void			  __fastcall__ zsm_psg_suspend(u8 channel, u8 suspend);
 extern void			  __fastcall__ zsm_opm_suspend(u8 channel, u8 suspend);
+extern void			  __fastcall__ zsm_pcm_suspend(u8 suspend);
 
 #endif
