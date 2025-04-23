@@ -72,7 +72,7 @@ int main() {
 	printf("\npress return to stop playback and exit\n");
 	cbm_k_basin();
 
-	zsm_clearisr();
+	zsmkit_clearisr();
 	zsm_stop(0);
 
 	return 0;
