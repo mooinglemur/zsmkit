@@ -3,7 +3,9 @@
 #include "zsmckit.h"
 
 //Used for directly setting the RAM bank
-#define RAM_BANK 0x00
+#ifndef RAM_BANK  // older versions of CC65 does not have RAM_BANK defined
+#define RAM_BANK (*(unsigned char *)0x00)
+#endif
 
 // Assign memory area used as trampoline and storage for ZSMkit
 // It is also possible to just use something like golden RAM at 0x0400
@@ -13,7 +15,7 @@ u8 trampoline[256];
   Set the RAM bank
 */
 void set_ram_bank(u8 bank) {
-	*(u8*)RAM_BANK = bank;
+	RAM_BANK = bank;
 }
 
 /*
@@ -72,7 +74,7 @@ int main() {
 	printf("\npress return to stop playback and exit\n");
 	cbm_k_basin();
 
-	zsm_clearisr();
+	zsmkit_clearisr();
 	zsm_stop(0);
 
 	return 0;
