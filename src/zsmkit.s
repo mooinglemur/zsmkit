@@ -6,7 +6,7 @@
 
 .macpack longbranch
 
-ZSMKIT_VERSION = $0208
+ZSMKIT_VERSION = $0209
 
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
