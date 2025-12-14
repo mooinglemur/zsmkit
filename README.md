@@ -80,14 +80,14 @@ All of the public API calls start at the beginning of the $A000 space in the fir
 All calls except for `zsm_tick` are meant to be called from the main loop of the program. `zsm_tick` is the only routine that is safe to call from IRQ.
 
 ---
-#### `zsm_init_engine`
+#### `zsm_init_engine` - `$A000`
 ```
 Inputs: .X .Y = (lo hi) Low RAM address of 256 bytes of data that ZSMKit will use for trampolines, the default IRQ handler code, and PCM FIFO-feeding code
 ```
 This routine *must* be called once before any other library routines are called in order to initialize the state of the engine.
 
 ---
-#### `zsm_midi_init`
+#### `zsm_midi_init` - `$A066`
 ```
 Inputs: .A = MIDI device I/O base offset from $9F00, 0 to disable
         .X = serial/parallel toggle
@@ -107,7 +107,7 @@ If carry is set, all MIDI events are routed through the callback with event type
 If carry is clear, MIDI events will not be routed through the callback.
 
 ---
-#### `zsm_setbank`
+#### `zsm_setbank` - `$A01B`
 ```
 Inputs: .X = priority, .A = RAM bank
 ```
@@ -116,7 +116,7 @@ Call this prior to calling `zsm_setmem`.
 This function expects the RAM bank where the ZSM data starts. After calling this routine, call `zsm_setmem` to finish the setup of a priority slot.
 
 ---
-#### `zsm_setmem`
+#### `zsm_setmem` - `$A01E`
 ```
 Inputs: .X = priority, .A .Y = memory location (lo hi)
 Preparatory routine: `zsm_setbank`
@@ -127,7 +127,7 @@ This function sets up the song pointers and parses the header based on a ZSM tha
 
 ---
 
-#### `zsm_close`
+#### `zsm_close` - `$A00F`
 ```
 Inputs: .X = priority
 ```
@@ -135,28 +135,28 @@ Resets the state of the slot. This routine can be used to permanently stop a son
 
 ---
 
-#### `zsm_play`
+#### `zsm_play` - `$A006`
 ```
 Inputs: .X = priority
 ```
 Starts playback of a song.  If `zsm_stop` was called, this function continues playback from the point that it was stopped.
 
 ---
-#### `zsm_stop`
+#### `zsm_stop` - `$A009`
 ```
 Inputs: .X = priority
 ```
 Pauses playback of a song. Playback can optionally be resumed from that point later with `zsm_play`.
 
 ---
-#### `zsm_rewind`
+#### `zsm_rewind` - `$A00C`
 ```
 Inputs: .X = priority
 ```
 Stops playback of a song (if it is already playing) and resets its pointer to the beginning of the song. Playback can then be started again with `zsm_play`.
 
 ---
-#### `zsm_setatten`
+#### `zsm_setatten` - `$A021`
 ```
 Inputs: .X = priority, .A = attenuation value
 ```
@@ -167,7 +167,7 @@ Attenuation is set on all active channels for the priority, and will also affect
 
 ---
 
-#### `zsm_setcb`
+#### `zsm_setcb` - `$A024`
 ```
 Inputs: .X = priority, .A .Y = pointer to callback
 ```
@@ -197,7 +197,7 @@ ZSM sync type 1 note: ZSM exports from Furnace will have an event of sync type 1
 
 
 ---
-#### `zsm_clearcb`
+#### `zsm_clearcb` - `$A027`
 ```
 Inputs: .X = priority
 ```
@@ -207,7 +207,7 @@ Note: The callback settings for a priority are not cleared if the priority switc
 
 ---
 
-#### `zsm_getstate`
+#### `zsm_getstate` - `$A02A`
 ```
 Inputs: .X = priority
 Outputs: .C = playing, Z = not playable, .A .Y = (lo hi) loop counter
@@ -222,7 +222,7 @@ The loop counter will indicate the number of times the song has looped.
 
 ---
 
-#### `zsm_setrate`
+#### `zsm_setrate` - `$A02D`
 ```
 Inputs: .X = priority, .A .Y = (lo hi) new tick rate
 Outputs: none
@@ -236,7 +236,7 @@ ZSM files have a tick rate which usually matches, at 60 Hz, but this isn't alway
 ---
 
 
-#### `zsm_getrate`
+#### `zsm_getrate` - `$A030`
 ```
 Inputs: .X = priority
 Outputs: A .Y = (lo hi) tick rate
@@ -246,7 +246,7 @@ Returns the value of the tick rate for the ZSM in this priority.
 ---
 
 
-#### `zsm_setloop`
+#### `zsm_setloop` - `$A033`
 ```
 Inputs: .X = priority, .C = whether to loop
 Outputs: none
@@ -259,7 +259,7 @@ This routine can be used to override this behavior.
 
 ---
 
-#### `zsm_opmatten`
+#### `zsm_opmatten` - `$A036`
 ```
 Inputs: .X = priority, .Y = channel, .A = value
 Outputs: none
@@ -269,7 +269,7 @@ Changes the volume of an individual OPM channel for a priority slot by setting a
 ---
 
 
-#### `zsm_psgatten`
+#### `zsm_psgatten` - `$A039`
 ```
 Inputs: .X = priority, .Y = channel, .A = value
 Outputs: none
@@ -278,7 +278,7 @@ Changes the volume of an individual PSG channel for a priority slot by setting a
 
 ---
 
-#### `zsm_pcmatten`
+#### `zsm_pcmatten` - `$A03C`
 ```
 Inputs: .X = priority, .A = value
 Outputs: none
@@ -289,7 +289,7 @@ Even though the PCM channel's volume has a 4-bit resolution, the attenuation val
 
 ---
 
-#### `zsm_set_int_rate`
+#### `zsm_set_int_rate` - `$A03F`
 ```
 Inputs: .A = new rate (integer portion in Hz)
         .Y = new rate (fractional portion in 1/256th Hz)
@@ -302,7 +302,7 @@ Note: If you expect to play PCM sounds, either in songs or as ZCMs, you will sti
 Calling `zsm_init_engine` will reset this value to 60.
 
 ---
-#### `zsm_set_ondeck_bank`
+#### `zsm_set_ondeck_bank` - `$A05D`
 ```
 Inputs: .X = priority, .A = RAM bank
 ```
@@ -311,7 +311,7 @@ Call this prior to calling `zsm_set_ondeck_mem`.
 This function expects the RAM bank where the ZSM data starts. After calling this routine, call `zsm_set_onbank_mem` to finish the setup of the "on deck" ZSM data for a priority slot.
 
 ---
-#### `zsm_set_ondeck_mem`
+#### `zsm_set_ondeck_mem` - `$A060`
 ```
 Inputs: .X = priority, .A .Y = memory location (lo hi)
 Preparatory routine: `zsm_set_ondeck_bank`
@@ -323,14 +323,14 @@ This function sets up the song pointers and parses the header based on a ZSM tha
 The on-deck song is simply the ZSM that will play once the active song completes.  If the active song is configured to loop, it will loop as normal.  It can be useful to use this mechanism with a looping song as an event-based song or musical section switch.  If the loop flag is cleared with the `zsm_setloop` call, the on-deck song will become active once the active song ends.
 
 ---
-#### `zsm_clear_ondeck`
+#### `zsm_clear_ondeck` - `$A063`
 ```
 Inputs: .X = priority
 ```
 This function clears the on-deck song previously set by `zsm_set_ondeck_mem`.  If the priority is playing, the priority will stop playback as normal once the song ends.
 
 ---
-#### `zsm_getloop`
+#### `zsm_getloop` - `$A012`
 ```
 Inputs: .X = priority
 Outputs: .C = looped flag, .A = bank, .X .Y (lo hi) = address
@@ -340,7 +340,7 @@ If the requested priority is playable and has a loop point, this function will r
 If the priority is not playable or not looped, the function will return with carry set, and .A, .X, and .Y will be undefined.
 
 ---
-#### `zsm_getptr`
+#### `zsm_getptr` - `$A015`
 ```
 Inputs: .X = priority
 Outputs: .C = looped flag, .A = bank, .X .Y (lo hi) = address
@@ -350,7 +350,7 @@ If the requested priority is playable, this function will return the address and
 If the priority is not playable, the function will return with carry set, and .A, .X, and .Y will be undefined.
 
 ---
-#### `zsm_getksptr`
+#### `zsm_getksptr` - `$A018`
 ```
 Inputs: .X = priority
 Outputs: .X .Y (lo hi) = address
@@ -389,7 +389,7 @@ Keys will show their intended state even if the channel is not available for the
 The primary use case is for player visualizations.
 
 ---
-#### `zsm_getosptr`
+#### `zsm_getosptr` - `$A042`
 ```
 Inputs: .X = priority
 Outputs: .X .Y (lo hi) = address
@@ -403,7 +403,7 @@ Internally, ZSMKit uses the OPM shadow to manage suspension and restoration of c
 Exposing the memory location via this function is mainly useful for player visualizations.
 
 ---
-#### `zsm_getpsptr`
+#### `zsm_getpsptr` - `$A045`
 ```
 Inputs: .X = priority
 Outputs: .X .Y (lo hi) = address
@@ -417,7 +417,7 @@ Internally, ZSMKit uses the PSG shadow to manage suspension and restoration of c
 Exposing the memory location via this function is mainly useful for player visualizations.
 
 ---
-#### `zsm_psg_suspend`
+#### `zsm_psg_suspend` - `$A069`
 ```
 Inputs: .Y = channel (0-15)
         .C = if set, suspend; if clear, release
@@ -430,7 +430,7 @@ This action is GLOBAL, and will prevent ZSMKit from touching registers for this 
 Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
 
 ---
-#### `zsm_opm_suspend`
+#### `zsm_opm_suspend` - `$A06C`
 ```
 Inputs: .Y = channel (0-7)
         .C = if set, suspend; if clear, release
@@ -443,7 +443,7 @@ This action is GLOBAL, and will prevent ZSMKit from touching registers for this 
 Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
 
 ---
-#### `zsm_pcm_suspend`
+#### `zsm_pcm_suspend` - `$A06F`
 ```
 Inputs: .C = if set, suspend; if clear, release
 ```
@@ -463,14 +463,14 @@ Suspension is useful to allow for programmed sound effects to play independent o
 
 ZCM files are PCM data files with an 8-byte header indicating their bit depth, number of channels, and length. In order for ZSMKit to play them, they must be loaded into memory first, and their location in memory given to ZSMKit via the `zcm_setbank` and `zcm_setmem` routines. ZSMKit can track up to 32 ZCMs in memory, slots 0-31, though it's likely you'd exhaust high RAM before having that many loaded at once.
 
-#### `zcm_setbank`
+#### `zcm_setbank` - `$A048`
 ```
 Inputs: .X = slot, .A = RAM bank
 ```
 Tells ZSMKit which bank to find a ZCM (PCM sample) image. After calling this routine, call `zcm_setmem` to pass the address to finish setting up the slot.
 
 
-#### `zcm_setmem`
+#### `zcm_setmem` - `$A04B`
 ```
 Inputs: .X = slot, .A .Y = memory location (lo hi)
 Preparatory routines: `zcm_setbank`
@@ -478,14 +478,14 @@ Preparatory routines: `zcm_setbank`
 Tells ZSMKit what address to find a ZCM (PCM sample) image.  This image has an 8-byte header followed by raw PCM
 
 ---
-#### `zcm_play`
+#### `zcm_play` - `$A04E`
 ```
 Inputs: .X = slot, .A = volume
 ```
 Starts playback of a ZCM PCM sample. This playback will take priority over any other PCM events in progress until either playback finishes or it is explicitly stopped with `zcm_stop`.
 
 ---
-#### `zcm_stop`
+#### `zcm_stop` - `$A051`
 ```
 Inputs: none
 ```
@@ -496,7 +496,7 @@ If a ZCM is playing when this routine is called, playback is immediately stopped
 This routine is the only one that is safe to call from an IRQ handler.
 
 ---
-#### `zsm_tick`
+#### `zsm_tick` - `$A003`
 ```
 Inputs: .A = 0 (tick music data and PCM)
         .A = 1 (tick PCM only)
@@ -511,21 +511,21 @@ ZSMKit will need to know how often you plan to call its music data tick routine 
 ### Miscellaneous API calls
 
 ---
-#### `zsmkit_setisr`
+#### `zsmkit_setisr` - `$A054`
 ```
 Inputs: none
 ```
 This sets up a default interrupt service routine that calls `zsm_tick` on every interrupt. The existing IRQ handler is called afterwards. This will work for most simple use cases of ZSMKit if there's only one interrupt per frame: VERA's VSYNC interrupt.
 
 ---
-#### `zsmkit_clearisr`
+#### `zsmkit_clearisr` - `$A057`
 ```
 Inputs: none
 ```
 This routine removes the interrupt service routine that was injected by `zsmkit_setisr`
 
 ---
-#### `zsmkit_version`
+#### `zsmkit_version` - `$A05A`
 ```
 Inputs: none
 Outputs: .A = major version, .X = minor version
