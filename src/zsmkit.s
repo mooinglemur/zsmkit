@@ -6,7 +6,7 @@
 
 .macpack longbranch
 
-ZSMKIT_VERSION = $0207
+ZSMKIT_VERSION = $0300
 
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
@@ -39,6 +39,11 @@ PTR = $02 ; temporary ZP used for indirect addressing, preserved and restored
 .define MCR_RTS $02 ; Request To Send
 .define LSR_THRE $20 ; Transmitter Holding Register Empty
 .define LSR_DR $01 ; Data Ready
+
+.macro set_carry_if_65c816
+	clc
+	.byte $E2, $03 ; sep #$03
+.endmacro
 
 .segment "JMPTBL"
 jmp zsm_init_engine      ; $A000
@@ -79,8 +84,12 @@ jmp zsm_midi_init        ; $A066
 jmp zsm_psg_suspend      ; $A069
 jmp zsm_opm_suspend      ; $A06C
 jmp zsm_pcm_suspend      ; $A06F
+jmp zsm_mute             ; $A072
 
-.segment "ZSMKITBSS"
+zsmkit_setisr   := go_bank1_zsmkit_setisr
+zsmkit_clearisr := go_bank1_zsmkit_clearisr
+
+.segment "ZSMKITBSS0"
 _ZSM_BSS_START := *
 
 ; offset = priority*256
@@ -126,6 +135,21 @@ prio_ondeck:            .res NUM_PRIORITIES
 ; It is set nonzero when a file is loaded and
 ; is ready
 prio_playable:          .res NUM_PRIORITIES
+
+; Non-zero when a priority is muted.
+; Muted priorities will continue playback
+; without allocating any voices/channels.
+;
+; Useful in cases when you want playback to
+; continue to update a song's position while
+; another song is playing.
+;
+; This is more flexible than attenuating
+; a lower priority to max and playing a new
+; song on a higher priority because a higher
+; priority can be muted allowing a lower
+; priority to acquire the voices.
+prio_muted:             .res NUM_PRIORITIES
 
 ; Callback is called whenever the song ends or loops
 callback_addr_l:        .res NUM_PRIORITIES
@@ -240,10 +264,6 @@ recheck_priorities:      .res 1
 ; chip type (from X16 audio library)
 ym_chip_type:            .res 1
 
-; interrupt rate (default 60)
-int_rate:                .res 1
-int_rate_frac:           .res 1
-
 ; flag for whether MIDI events cause a callback (GLOBAL)
 ; only bit 7 is checked
 midi_callback_enable:    .res 1
@@ -260,16 +280,217 @@ midi_channel_mask_h:     .res NUM_PRIORITIES
 ; "fetch" state
 fetch_bank:              .res 1
 
-; low RAM region provided by the user to copy the ISR and PCM code to.
-lowram:                  .res 2
-
 ; tick-preserved ZP state
 zp_preserve_tick:        .res 2
 
+; mute toggle, set when muting or unmuting for more comprehensive reprio
+mute_toggle:             .res 1
+
 _ZSM_BSS_END := *
 
+; Bank 1 BSS.  Variables are explicitly named for clarity
+.segment "ZSMKITBSS1"
 
-.segment "ZSMKITLIB"
+; low RAM region provided by the user to copy the ISR and PCM code to.
+bank1_var_lowram:        .res 2
+
+; interrupt rate (default 60)
+bank1_var_int_rate:      .res 1
+bank1_var_int_rate_frac: .res 1
+
+; Routines that get copied into low RAM
+.segment "ZSMKIT_LOWRAM"
+;.......
+; _isr :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Default ISR set by (bank1_)zsmkit_setisr
+_isr:
+	lda X16::Reg::RAMBank
+	pha
+	lda #$ff
+ISRBANK = * - 1
+	sta X16::Reg::RAMBank
+	lda #0
+	jsr zsm_tick
+	pla
+	sta X16::Reg::RAMBank
+
+_old_isr:
+	jmp $ffff
+
+;.............
+; _load_fifo :
+;============================================================================
+; Arguments: .XY = number of bytes to read and send
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; Imported from ZSound, a very efficient FIFO filler routine
+; starts at pcm_cur_* and then updates their values at the end
+.proc _load_fifo: near
+	bytes_left  = PTR   ; reuse PTR for bytes left
+	__CPX		= $e0	; opcode for cpx immediate
+	__BNE		= $d0
+
+	PRESERVE_ZP_PTR
+	lda X16::Reg::RAMBank
+	pha
+
+	; self-mod the page of the LDA below to the current page of pcm_cur_h
+	lda pcm_cur_h
+_selfmod_code_data_pages1:
+	sta data_page0
+	sta data_page1
+	sta data_page2
+	sta data_page3
+
+	; page-align
+	txa             ;.A now holds the low-byte of n-bytes to copy
+	ldx pcm_cur_l   ;.X now points at the page-aligned offset
+	; add the delta to bytes_left
+	clc
+	adc pcm_cur_l
+	sta bytes_left
+	bcc :+
+	iny
+:	lda pcm_cur_bank ; load the bank we'll be reading from
+	sta X16::Reg::RAMBank
+	; determine whether we have > $FF bytes to copy. If $100 or more, then
+	; use the full-page dynamic comparator. Else use the last-page comparator.
+	cpy #0
+	beq last_page   ; if 0, then use the last_page comparator.
+	; self-mod the instruction at dynamic_comparator to:
+	; BNE copy_byte
+	lda #__BNE
+_selfmod_code_dynamic_comparator1:
+	sta dynamic_comparator
+	lda #.lobyte(copy_byte0-dynamic_comparator-2)
+_selfmod_code_dynamic_comparator1p1:
+	sta dynamic_comparator+1
+	; compute num-steps % 4 (the mod4 is done by shifting the 2 LSB into N and C)
+	txa
+enter_loop:
+	ror
+	ror
+	bcc :+
+	bmi copy_byte3  ; 18
+	bra copy_byte2  ; 20
+:	bmi copy_byte1  ; 19
+
+copy_byte0:
+	lda $FF00,x
+	data_page0 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+copy_byte1:
+	lda $FF00,x
+	data_page1 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+copy_byte2:
+	lda $FF00,x
+	data_page2 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+copy_byte3:
+	lda $FF00,x
+	data_page3 = (*-1)
+	sta Vera::Reg::AudioData
+	inx
+dynamic_comparator:
+	bne copy_byte0
+	; the above instruction is modified to CPX #(bytes_left) on the last page of data
+	bne copy_byte0  ; branch for final page's CPX result.
+	cpx #0
+	bne done        ; .X can only drop out of the loop on non-zero during the final page.
+	; Thus X!=0 means we just finished the final page. Done.
+	; advance data pointer before checking if done on a page offset of zero.
+_selfmod_code_data_page0:
+	lda data_page0
+	inc
+	cmp #$c0
+	beq do_bankwrap
+no_bankwrap:
+	; update the self-mod for all 4 iterations of the unrolled loop
+_selfmod_code_data_pages2:
+	sta data_page0
+	sta data_page1
+	sta data_page2
+	sta data_page3
+check_done:
+	cpy #0		; .Y = high byte of "bytes_left"
+	beq done	; .X must be zero as well if we're here. Thus 0 bytes left. Done.
+	dey
+	bne copy_byte0	; more than one page remains. Continue with full-page mode copy.
+last_page:
+	lda bytes_left
+	beq done		; if bytes_left=0 then we're done at offset 0x00, so exit.
+	; self-mod the instruction at dynamic_comparator to be:
+	; CPX #(bytes_left)
+_selfmod_code_dynamic_comparator2p1:
+	sta dynamic_comparator+1
+	lda #__CPX
+_selfmod_code_dynamic_comparator2:
+	sta dynamic_comparator
+	; Compute the correct loop entry point with the new exit index
+	; i.e. the last page will start at x == 0, but we won't necessarily
+	; end on a value x % 4 == 0, so the first entry from here into
+	; the 4x unrolled loop is potentially short in order to make up
+	; for it.
+	; Find: bytes_left - .X
+	txa
+	eor #$ff
+	sec	; to carry in the +1 for converting 2s complement of .X
+
+	adc bytes_left
+	; .A *= -1 to align it with the loop entry jump table
+	eor #$ff
+	inc
+	bra enter_loop
+
+done:
+	ldy X16::Reg::RAMBank
+	pla
+	sta X16::Reg::RAMBank
+_selfmod_code_data_page0a:
+	lda data_page0
+	sta pcm_cur_h
+	stx pcm_cur_l
+	sty pcm_cur_bank
+	RESTORE_ZP_PTR
+	rts
+
+do_bankwrap:
+	lda #$a0
+	inc X16::Reg::RAMBank
+	bra no_bankwrap
+
+.endproc
+
+getzsmbyte:
+	lda zsm_ptr_bank,x
+fetchbyte:
+	phx
+	ldx X16::Reg::RAMBank
+	phx
+	sta X16::Reg::RAMBank
+	lda (PTR)
+	plx
+	stx X16::Reg::RAMBank
+	plx
+	rts
+
+
+; Bank 0 functions
+.segment "ZSMKIT0"
 ;..................
 ; zsm_init_engine :
 ;============================================================================
@@ -325,16 +546,8 @@ last_page:
 erasedone:
 
 	plx
-	stx lowram
 	ply
-	sty lowram+1
-
-	; default rate of 60 Hz
-	lda #60
-	sta int_rate
-	stz int_rate_frac
-
-	ldx #$01
+	jsr go_bank1_init ; lowram in XY, sets default int rate
 
 	jsr ym_get_chip_type
 	sta ym_chip_type
@@ -347,7 +560,7 @@ erasedone:
 	pla
 	sta X16::Reg::ROMBank
 
-	jsr _copy_and_fixup_low_ram_routines
+	jsr go_bank1_copy_and_fixup_low_ram_routines
 
 	RESTORE_ZP_PTR
 
@@ -403,124 +616,6 @@ pmidi_ready:
     rts
 .endproc
 
-;.............
-; zsm_setisr :
-;============================================================================
-; Arguments: (none)
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-;
-; Sets up a default ISR handler and injects it before the existing ISR
-zsmkit_setisr:
-	nop
-	php
-	sei
-
-	PRESERVE_ZP_PTR
-
-	lda #$ea
-	sta zsmkit_clearisr ; ungate zsmkit_clearisr
-	lda #$60
-	sta zsmkit_setisr ; gate zsmkit_setisr
-
-	lda lowram
-	sta PTR
-	lda lowram+1
-	sta PTR+1
-
-	ldy #<(ISRBANK - __ZSMKIT_LOWRAM_LOAD__)
-	lda X16::Reg::RAMBank
-	sta (PTR),y
-
-	ldy #<((_old_isr + 1) - __ZSMKIT_LOWRAM_LOAD__)
-	lda X16::Vec::IRQVec
-	sta (PTR),y
-
-	iny
-	lda X16::Vec::IRQVec+1
-	sta (PTR),y
-
-	lda lowram
-	clc
-	adc #<(_isr - __ZSMKIT_LOWRAM_LOAD__)
-	sta X16::Vec::IRQVec
-	lda lowram+1
-	adc #0
-	sta X16::Vec::IRQVec+1
-
-	RESTORE_ZP_PTR
-
-	plp
-	rts
-
-;...............
-; zsm_clearisr :
-;============================================================================
-; Arguments: (none)
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-;
-; Clears the default ISR handler if it exists and restores the previous one
-zsmkit_clearisr:
-	rts
-	php
-	sei
-
-	PRESERVE_ZP_PTR
-
-	lda #$60
-	sta zsmkit_clearisr ; gate zsmkit_clearisr
-	lda #$ea
-	sta zsmkit_setisr ; ungate zsmkit_setisr
-	lda lowram
-	clc
-	adc #<(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	sta PTR
-	lda lowram+1
-	adc #>(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	sta PTR+1
-
-	lda (PTR)
-	sta X16::Vec::IRQVec
-	ldy #1
-	lda (PTR),y
-	sta X16::Vec::IRQVec+1
-
-	RESTORE_ZP_PTR
-
-	plp
-	rts
-
-.pushseg
-.segment "ZSMKIT_LOWRAM"
-;.......
-; _isr :
-;============================================================================
-; Arguments: (none)
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: yes
-; ---------------------------------------------------------------------------
-;
-; Default ISR set by zsmkit_setisr
-_isr:
-	lda X16::Reg::RAMBank
-	pha
-	lda #$ff
-ISRBANK = * - 1
-	sta X16::Reg::RAMBank
-	lda #0
-	jsr zsm_tick
-	pla
-	sta X16::Reg::RAMBank
-
-_old_isr:
-	jmp $ffff
-.popseg
 
 ;..............
 ; zsm_version :
@@ -914,19 +1009,23 @@ end:
 .proc _pcm_trigger_instrument: near
 	cmp pcm_inst_max,x
 	beq :+ ; ok
-	bcs go_end ; the last instrument known is a lower index than the one requested
+	bcs exit ; the last instrument known is a lower index than the one requested
 :	tay
+
+	lda prio_muted,x
+	bne exit
+
 	lda pcm_table_exists,x
-	bpl go_end
+	bpl exit
 
 	bit pcm_busy
 	bpl take_over
-	bvs go_end ; suspended
+	bvs exit ; suspended
 
 	cpx pcm_prio
 	bcs take_over
-go_end:
-	jmp end
+exit:
+	rts ; was "jmp end"
 take_over:
 	PRESERVE_ZP_PTR
 
@@ -1204,10 +1303,10 @@ validation:
 ; how many bytes to send to the FIFO, then does so
 .proc _pcm_player: near
 	bit pcm_busy
-	bpl go_end ; nothing is playing
+	bpl exit ; nothing is playing
 	bvc continue ; not suspended
-go_end:
-	jmp end
+exit:
+	rts
 continue:
 	ldx Vera::Reg::AudioRate
 	stx RR ; self mod to restore the rate if we happen to zero it to do the
@@ -1220,13 +1319,13 @@ fast:
 	cpx #$ff
 	bne :+
 	ldx #$7f
-:	lda pcmrate_fast,x
+:	jsr go_bank1_lda_pcmrate_fast_x
 	bra calc_bytes
 slow:
 	cpx #$ff
 	bne :+
 	rts ; AFLOW is clear and rate is 0, don't bother feeding	
-:	lda pcmrate_slow,x
+:	jsr go_bank1_lda_pcmrate_slow_x
 calc_bytes:
 	; do the << 2 base amount
 	stz tmp_count+1
@@ -1331,162 +1430,6 @@ end:
 tmp_count:
 	.byte 0,0
 .endproc
-
-.pushseg
-.segment "ZSMKIT_LOWRAM"
-
-;.............
-; _load_fifo :
-;============================================================================
-; Arguments: .XY = number of bytes to read and send
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: yes
-; ---------------------------------------------------------------------------
-;
-; Imported from ZSound, a very efficient FIFO filler routine
-; starts at pcm_cur_* and then updates their values at the end
-.proc _load_fifo: near
-	bytes_left  = PTR   ; reuse PTR for bytes left
-	__CPX		= $e0	; opcode for cpx immediate
-	__BNE		= $d0
-
-	PRESERVE_ZP_PTR
-	lda X16::Reg::RAMBank
-	pha
-
-	; self-mod the page of the LDA below to the current page of pcm_cur_h
-	lda pcm_cur_h
-_selfmod_code_data_pages1:
-	sta data_page0
-	sta data_page1
-	sta data_page2
-	sta data_page3
-
-	; page-align
-	txa             ;.A now holds the low-byte of n-bytes to copy
-	ldx pcm_cur_l   ;.X now points at the page-aligned offset
-	; add the delta to bytes_left
-	clc
-	adc pcm_cur_l
-	sta bytes_left
-	bcc :+
-	iny
-:	lda pcm_cur_bank ; load the bank we'll be reading from
-	sta X16::Reg::RAMBank
-	; determine whether we have > $FF bytes to copy. If $100 or more, then
-	; use the full-page dynamic comparator. Else use the last-page comparator.
-	cpy #0
-	beq last_page   ; if 0, then use the last_page comparator.
-	; self-mod the instruction at dynamic_comparator to:
-	; BNE copy_byte
-	lda #__BNE
-_selfmod_code_dynamic_comparator1:
-	sta dynamic_comparator
-	lda #.lobyte(copy_byte0-dynamic_comparator-2)
-_selfmod_code_dynamic_comparator1p1:
-	sta dynamic_comparator+1
-	; compute num-steps % 4 (the mod4 is done by shifting the 2 LSB into N and C)
-	txa
-enter_loop:
-	ror
-	ror
-	bcc :+
-	bmi copy_byte3  ; 18
-	bra copy_byte2  ; 20
-:	bmi copy_byte1  ; 19
-
-copy_byte0:
-	lda $FF00,x
-	data_page0 = (*-1)
-	sta Vera::Reg::AudioData
-	inx
-copy_byte1:
-	lda $FF00,x
-	data_page1 = (*-1)
-	sta Vera::Reg::AudioData
-	inx
-copy_byte2:
-	lda $FF00,x
-	data_page2 = (*-1)
-	sta Vera::Reg::AudioData
-	inx
-copy_byte3:
-	lda $FF00,x
-	data_page3 = (*-1)
-	sta Vera::Reg::AudioData
-	inx
-dynamic_comparator:
-	bne copy_byte0
-	; the above instruction is modified to CPX #(bytes_left) on the last page of data
-	bne copy_byte0  ; branch for final page's CPX result.
-	cpx #0
-	bne done        ; .X can only drop out of the loop on non-zero during the final page.
-	; Thus X!=0 means we just finished the final page. Done.
-	; advance data pointer before checking if done on a page offset of zero.
-_selfmod_code_data_page0:
-	lda data_page0
-	inc
-	cmp #$c0
-	beq do_bankwrap
-no_bankwrap:
-	; update the self-mod for all 4 iterations of the unrolled loop
-_selfmod_code_data_pages2:
-	sta data_page0
-	sta data_page1
-	sta data_page2
-	sta data_page3
-check_done:
-	cpy #0		; .Y = high byte of "bytes_left"
-	beq done	; .X must be zero as well if we're here. Thus 0 bytes left. Done.
-	dey
-	bne copy_byte0	; more than one page remains. Continue with full-page mode copy.
-last_page:
-	lda bytes_left
-	beq done		; if bytes_left=0 then we're done at offset 0x00, so exit.
-	; self-mod the instruction at dynamic_comparator to be:
-	; CPX #(bytes_left)
-_selfmod_code_dynamic_comparator2p1:
-	sta dynamic_comparator+1
-	lda #__CPX
-_selfmod_code_dynamic_comparator2:
-	sta dynamic_comparator
-	; Compute the correct loop entry point with the new exit index
-	; i.e. the last page will start at x == 0, but we won't necessarily
-	; end on a value x % 4 == 0, so the first entry from here into
-	; the 4x unrolled loop is potentially short in order to make up
-	; for it.
-	; Find: bytes_left - .X
-	txa
-	eor #$ff
-	sec	; to carry in the +1 for converting 2s complement of .X
-
-	adc bytes_left
-	; .A *= -1 to align it with the loop entry jump table
-	eor #$ff
-	inc
-	bra enter_loop
-
-done:
-	ldy X16::Reg::RAMBank
-	pla
-	sta X16::Reg::RAMBank
-_selfmod_code_data_page0a:
-	lda data_page0
-	sta pcm_cur_h
-	stx pcm_cur_l
-	sty pcm_cur_bank
-	RESTORE_ZP_PTR
-	rts
-
-do_bankwrap:
-	lda #$a0
-	inc X16::Reg::RAMBank
-	bra no_bankwrap
-
-.endproc
-
-.popseg
 
 .proc _promote_ondeck: near
 	; clear ondeck state
@@ -1613,9 +1556,7 @@ psgnext:
 PVMS = * - 1
 	bcc psgloop
 
-	jsr _calculate_speed
-
-	rts
+	jmp _calculate_speed ; TCO
 .endproc
 
 ;.............
@@ -1710,7 +1651,7 @@ iseod:
 	jne ondeck
 	stz prio_active,x
 	ldy #$00
-	; A == 0 already
+	; .A == 0 already
 	jsr _callback
 	jmp _stop_sound
 isext:
@@ -1732,7 +1673,7 @@ ischip: ; external chip, ignore
 	jsr getzsmbyte
 GETZSMBYTEL = * - 2
 	dey
-	cmp #1
+	dec ; destructive compare for .A = #1 that saves a byte
 	jeq ismidi ; we don't process chip type #2 here
 eat_chipdata: ; unrecognized chip device
 	jsr advanceptr
@@ -1959,7 +1900,7 @@ _ym_write:
 	cpx #$08
 	beq @key ; register 8 is key-off/key-on, and value => voice
 	cpx #$0f
-	beq @noi ; noise register belongs to whomever owns channel 7
+	beq @noi ; noise register belongs to whoever owns channel 7
 	cpx #$20
 	bcc @zero ; other registers < $20 are owned by prio 0
 	txa ; >= $20 the voice is the low 3 bits of the register
@@ -1985,133 +1926,6 @@ _ym_write:
 .endproc
 
 TEST_REGISTER = _prio_tick::TEST_REGISTER
-
-.pushseg
-.segment "ZSMKIT_LOWRAM"
-
-getzsmbyte:
-	lda zsm_ptr_bank,x
-fetchbyte:
-	phx
-	ldx X16::Reg::RAMBank
-	phx
-	sta X16::Reg::RAMBank
-	lda (PTR)
-	plx
-	stx X16::Reg::RAMBank
-	plx
-	rts
-.popseg
-
-;...................................
-; _copy_and_fixup_low_ram_routines :
-;============================================================================
-; Arguments: (none)
-; Returns: (none)
-; Preserves: (none)
-; Allowed in interrupt handler: no
-; ---------------------------------------------------------------------------
-.proc _copy_and_fixup_low_ram_routines: near
-	lda lowram
-	sta PTR
-	lda lowram+1
-	sta PTR+1
-	ldy #0
-copyloop:
-	lda __ZSMKIT_LOWRAM_LOAD__,y
-	sta (PTR),y
-	iny
-	cpy #<__ZSMKIT_LOWRAM_SIZE__
-	bcc copyloop
-
-	ldx #(selfmod_targets-selfmod_offsets)
-modloop:
-	ldy selfmod_offsets-1,x
-	lda lowram
-	clc
-	adc selfmod_targets-1,x
-	sta (PTR),y
-	iny
-	lda lowram+1
-	adc #0
-	sta (PTR),y
-	dex
-	bne modloop
-
-	ldy #1 ; for the sta (PTR),y in the loop below
-	ldx #(fixups_h-fixups_l)
-fuloop:
-	lda fixups_l-1,x
-	sta PTR
-	lda fixups_h-1,x
-	sta PTR+1
-	clc
-	lda fixup_targets-1,x
-	adc lowram
-	sta (PTR)
-	lda #0
-	adc lowram+1
-	sta (PTR),y
-	dex
-	bne fuloop
-
-	rts
-selfmod_offsets:
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 4)
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 7)
-	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 10)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_page0 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 4)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 7)
-	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 10)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
-	.byte <(_load_fifo::_selfmod_code_data_page0a - __ZSMKIT_LOWRAM_LOAD__ + 1)
-selfmod_targets:
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
-fixups_l:
-	.lobytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
-	.lobytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
-	.lobytes _prio_tick::GETZSMBYTEL, _prio_tick::GETZSMBYTEM
-fixups_h:
-	.hibytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
-	.hibytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
-	.hibytes _prio_tick::GETZSMBYTEL, _prio_tick::GETZSMBYTEM
-fixup_targets:
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(_load_fifo - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
-.endproc
-
 
 ;..............
 ; _callback   :
@@ -2155,8 +1969,12 @@ CBH = * - 1
 	lda zsm_ptr_h,x
 	sta PTR+1
 nocb:
-	rts
+	; fall through
 .endproc
+
+; branch target shared between above proc and the one below
+shared_rts_1:
+	rts
 
 ;............
 ; _reprio   :
@@ -2166,23 +1984,32 @@ nocb:
 ; Preserves: (none)
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
-; 
+;
 ; processes any voice switch events that are needed chiefly due to songs no
 ; longer running, setting up for the reshadow
 ;
 .proc _reprio: near
 	lda recheck_priorities
-	beq exit
+	beq shared_rts_1
 
 	ldx #0
 opmloop:
+	lda mute_toggle
+	beq opminner
+	lda opm_priority,x
+	inc
+	bmi opmnext ; prio = $fe (suspended)
+	lda #(NUM_OPM_PRIORITIES-1)
+	sta opm_priority,x
+opminner:
 	ldy opm_priority,x
-	cpy #NUM_OPM_PRIORITIES ; $fe or $ff, most likely
-	bcs opmnext
+	bmi opmnext ; $fe or $ff, most likely
 	lda prio_playable,y
 	beq opmswitch
 	lda prio_active,y
 	beq opmswitch
+	lda prio_muted,y
+	bne opmswitch
 	lda times_8,y
 	adc #<opm_voice_mask
 	sta OVM
@@ -2195,7 +2022,7 @@ OVM = * -2
 opmswitch:
 	inc opm_restore_shadow,x
 	dec opm_priority,x ; see if the next lower priority is active
-	bra opmloop
+	bra opminner
 opmnext:
 	inx
 	cpx #8
@@ -2203,13 +2030,22 @@ opmnext:
 
 	ldx #0
 psgloop:
+	lda mute_toggle
+	beq psginner
+	lda vera_psg_priority,x
+	inc
+	bmi psgnext ; prio = $fe
+	lda #(NUM_PRIORITIES-1)
+	sta vera_psg_priority,x
+psginner:
 	ldy vera_psg_priority,x
-	cpy #NUM_PRIORITIES ; $fe or $ff, most likely
-	bcs psgnext
+	bmi psgnext ; $fe or $ff, most likely
 	lda prio_playable,y
 	beq psgswitch
 	lda prio_active,y
 	beq psgswitch
+	lda prio_muted,y
+	bne psgswitch
 	lda times_16,y
 	adc #<vera_psg_voice_mask
 	sta PVM
@@ -2222,12 +2058,13 @@ PVM = * -2
 psgswitch:
 	inc vera_psg_restore_shadow,x
 	dec vera_psg_priority,x ; see if the next lower priority is active
-	bra psgloop
+	bra psginner
 psgnext:
 	inx
 	cpx #16
 	bne psgloop
 
+	stz mute_toggle
 	stz recheck_priorities
 exit:
 	rts
@@ -2508,8 +2345,7 @@ psgnext:
 ;
 ; Sets the global interrupt rate that ZSMKit will expect ticks
 .proc zsm_set_int_rate: near
-	sta int_rate
-	sty int_rate_frac
+	jsr go_bank1_set_int_rate
 
 	ldx #(NUM_PRIORITIES-1)
 
@@ -2876,13 +2712,31 @@ cont:
 ; Arguments: .X = priority
 ; Returns: (none)
 ; Preserves: .X
-; Allowed in interrupt handler: no
+; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
 ;
 ; Stops or pauses a song priority.  For in-memory songs, nothing else is needed
 ; for cleanup.
 
 .proc zsm_stop: near
+	clc
+.endproc
+; falls through to function below
+
+
+;............
+; _zsm_stop :
+;============================================================================
+; Arguments: .X = priority
+;             c clear = set prio inactive, c set = don't touch active flag
+; Returns: (none)
+; Preserves: .X
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; internal stop function, responds to carry flag, unlike API function
+
+.proc _zsm_stop: near
 	lda X16::Reg::ROMBank
 	pha
 	lda #$0a
@@ -2893,14 +2747,17 @@ cont:
 	lda prio_active,x
 	beq exit
 
+	bcs do_stop_sound ; skip marking prio inactive
+	stz prio_active,x
+do_stop_sound:
 	jsr _stop_sound ; preserves .X
+
 exit:
 	plp ; restore interrupt mask state
 	pla
 	sta X16::Reg::ROMBank
 	rts
 .endproc
-
 
 ;..............
 ; _stop_sound :
@@ -2975,7 +2832,6 @@ after_high:
 	dey
 	bpl midiloop
 
-	stz prio_active,x
 	inc recheck_priorities
 
 	rts
@@ -2987,8 +2843,7 @@ after_high:
 	lda #120
 	jsr midi_send_byte
 	lda #0
-	jsr midi_send_byte
-	rts
+	jmp midi_send_byte ; TCO
 .endproc
 
 ;...........
@@ -3023,6 +2878,9 @@ ok:
 	sei
 
 	stx prio
+	lda prio_muted,x
+	bne after_reprio
+
 	cpx #NUM_OPM_PRIORITIES
 	bcs noopm
 	; check to see if we restore shadow from somewhere active next tick
@@ -3071,6 +2929,7 @@ nextpsg:
 	cpx #16
 	bcc psgloop
 
+after_reprio:
 	; indicate prio is now active
 	ldx prio
 	inc prio_active,x
@@ -3602,13 +3461,19 @@ eox:
 .proc _zero_shadow: near
 	phx
 
-	lda #0
-	ldy times_16,x
-	ldx #64
-:	sta vera_psg_shadow,y
-	iny
+	lda times_64,x
+	clc
+	adc #<vera_psg_shadow
+	sta PSGPRIO
+	lda times_64h,x
+	adc #>vera_psg_shadow
+	sta PSGPRIO+1
+
+	ldx #63
+:	stz vera_psg_shadow,x
+PSGPRIO = * - 2
 	dex
-	bne :-
+	bpl :-
 
 	plx
 	phx
@@ -3744,6 +3609,31 @@ end:
 	rts
 .endproc
 
+;...........
+; zsm_mute :
+;============================================================================
+; Arguments: .X = priority, c set = mute, c clear = unmute
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+.proc zsm_mute: near
+	php
+	sei
+	lda #1
+	sta mute_toggle
+	bcs mute
+	dec
+mute:
+	sta prio_muted,x
+	sec
+	jsr _zsm_stop ; internal function, does not stop playback when carry is set
+	              ; but stops sound, and sets recheck_priorities
+	plp
+	rts
+.endproc
+
 ;...................
 ; _calculate_speed :
 ;============================================================================
@@ -3752,19 +3642,410 @@ end:
 ; Preserves: .X
 ; Allowed in interrupt handler: yes
 ; ---------------------------------------------------------------------------
-;
-; performs the calculation tick_rate_*/60 and stores in speed_*
-;
 .proc _calculate_speed: near
 	php
 	sei
-	stx prio
-	; set speed to 60 if ZSM says it's zero
+	phx
+	ldy tick_rate_h,x
 	lda tick_rate_l,x
-	ora tick_rate_h,x
-	bne :+
+	tax
+	jsr go_bank1_calculate_speed
+	stx SL
+	plx
+	sta speed_f,x
+	lda #$ff ; preserved X from function
+SL = * -1
+	sta speed_l,x
+	tya
+	sta speed_h,x
+
+	plp
+	rts
+.endproc
+
+get_next_byte:
+	lda fetch_bank
+	jsr fetchbyte
+FETCHBYTEA = * - 2
+	inc PTR
+	bne gnb2
+	inc PTR+1
+validate_pt:
+	pha
+	lda PTR+1
+	cmp #$c0
+	bcc gnb1
+	sbc #$20
+	sta PTR+1
+	inc fetch_bank
+gnb1:
+	pla
+gnb2:
+	rts
+
+; bank 0 routines called from bank 1
+.proc bank0_sta_PTR_y: near
+	sta (PTR),y
+	jmp switch0to1
+.endproc
+
+
+
+; bank 0 go routines
+.proc go_bank1_init: near
+	lda #>(bank1_init-1)
+	pha
+	lda #<(bank1_init-1)
+	pha
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_set_int_rate: near ; .A/.Y need to be preserved, so we use .X
+	ldx #>(bank1_set_int_rate-1)
+	phx
+	ldx #<(bank1_set_int_rate-1)
+	phx
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_calculate_speed: near
+	lda #>(bank1_calculate_speed-1)
+	pha
+	lda #<(bank1_calculate_speed-1)
+	pha
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_copy_and_fixup_low_ram_routines: near
+	lda #>(bank1_copy_and_fixup_low_ram_routines-1)
+	pha
+	lda #<(bank1_copy_and_fixup_low_ram_routines-1)
+	pha
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_zsmkit_clearisr: near
+	lda #>(bank1_zsmkit_clearisr-1)
+	pha
+	lda #<(bank1_zsmkit_clearisr-1)
+	pha
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_zsmkit_setisr: near
+	lda #>(bank1_zsmkit_setisr-1)
+	pha
+	lda #<(bank1_zsmkit_setisr-1)
+	pha
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_lda_pcmrate_slow_x: near
+	lda #>(bank1_lda_pcmrate_slow_x-1)
+	pha
+	lda #<(bank1_lda_pcmrate_slow_x-1)
+	pha
+	jmp switch0to1
+.endproc
+
+.proc go_bank1_lda_pcmrate_fast_x: near
+	lda #>(bank1_lda_pcmrate_fast_x-1)
+	pha
+	lda #<(bank1_lda_pcmrate_fast_x-1)
+	pha
+	jmp switch0to1
+.endproc
+
+; bank 0 tables
+times_8:
+.repeat NUM_PRIORITIES*2, i
+	.byte i*8
+.endrepeat
+
+times_16:
+.repeat NUM_PRIORITIES*2, i
+	.byte i*16
+.endrepeat
+
+times_64:
+.repeat NUM_PRIORITIES, i
+	.byte <(i*64)
+.endrepeat
+
+times_64h:
+.repeat NUM_PRIORITIES, i
+	.byte >(i*64)
+.endrepeat
+
+two_to_the_n:
+.repeat 8, i
+	.byte (1 << i)
+.endrepeat
+
+
+; bank 1 functions, called from bank 0
+.segment "ZSMKIT1"
+;.............
+; bank1_init :
+;============================================================================
+; Arguments: .X .Y = lowram pointer (lo hi)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc bank1_init
+	stx bank1_var_lowram
+	sty bank1_var_lowram+1
+	stz bank1_var_int_rate_frac
 	lda #60
-	sta tick_rate_l,x
+	sta bank1_var_int_rate
+	jmp switch1to0
+.endproc
+
+;.....................
+; bank1_set_int_rate :
+;============================================================================
+; Arguments: .A = whole number rate, .Y = fractional rate
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc bank1_set_int_rate
+	sta bank1_var_int_rate
+	sty bank1_var_int_rate_frac
+	jmp switch1to0
+.endproc
+
+;........................................
+; bank1_copy_and_fixup_low_ram_routines :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+.proc bank1_copy_and_fixup_low_ram_routines: near
+	lda bank1_var_lowram
+	sta PTR
+	lda bank1_var_lowram+1
+	sta PTR+1
+	ldy #0
+copyloop:
+	lda __ZSMKIT_LOWRAM_LOAD__,y
+	sta (PTR),y
+	iny
+	cpy #<__ZSMKIT_LOWRAM_SIZE__
+	bcc copyloop
+
+	ldx #(selfmod_targets-selfmod_offsets)
+modloop:
+	ldy selfmod_offsets-1,x
+	lda bank1_var_lowram
+	clc
+	adc selfmod_targets-1,x
+	sta (PTR),y
+	iny
+	lda bank1_var_lowram+1
+	adc #0
+	sta (PTR),y
+	dex
+	bne modloop
+
+	ldx #(fixups_h-fixups_l)
+fuloop:
+	ldy #0
+	lda fixups_l-1,x
+	sta PTR
+	lda fixups_h-1,x
+	sta PTR+1
+	clc
+	lda fixup_targets-1,x
+	adc bank1_var_lowram
+	jsr go_bank0_sta_PTR_y
+	lda #0
+	adc bank1_var_lowram+1
+	iny
+	jsr go_bank0_sta_PTR_y
+	dex
+	bne fuloop
+
+	jmp switch1to0
+selfmod_offsets:
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 4)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 7)
+	.byte <(_load_fifo::_selfmod_code_data_pages1 - __ZSMKIT_LOWRAM_LOAD__ + 10)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator1p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_page0 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 4)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 7)
+	.byte <(_load_fifo::_selfmod_code_data_pages2 - __ZSMKIT_LOWRAM_LOAD__ + 10)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2p1 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_dynamic_comparator2 - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	.byte <(_load_fifo::_selfmod_code_data_page0a - __ZSMKIT_LOWRAM_LOAD__ + 1)
+selfmod_targets:
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page2 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page3 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator+1 - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::dynamic_comparator - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo::data_page0 - __ZSMKIT_LOWRAM_LOAD__)
+fixups_l:
+	.lobytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
+	.lobytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
+	.lobytes _prio_tick::GETZSMBYTEL, _prio_tick::GETZSMBYTEM
+fixups_h:
+	.hibytes _prio_tick::GETZSMBYTEA, _prio_tick::GETZSMBYTEB, _prio_tick::GETZSMBYTEC, _prio_tick::GETZSMBYTED, _prio_tick::GETZSMBYTEE, _prio_tick::GETZSMBYTEF
+	.hibytes _prio_tick::GETZSMBYTEG, _prio_tick::GETZSMBYTEH, _prio_tick::GETZSMBYTEI, _prio_tick::GETZSMBYTEJ, _prio_tick::GETZSMBYTEK, FETCHBYTEA, _pcm_player::LOADFIFOA
+	.hibytes _prio_tick::GETZSMBYTEL, _prio_tick::GETZSMBYTEM
+fixup_targets:
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(fetchbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(_load_fifo - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+	.byte <(getzsmbyte - __ZSMKIT_LOWRAM_LOAD__)
+.endproc
+
+;......................
+; bank1_zsmkit_setisr :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Sets up a default ISR handler and injects it before the existing ISR
+bank1_zsmkit_setisr:
+	jsr _bank1_zsmkit_setisr
+	jmp switch1to0
+
+_bank1_zsmkit_setisr:
+	nop
+	php
+	sei
+
+	PRESERVE_ZP_PTR
+
+	lda #$ea
+	sta _bank1_zsmkit_clearisr ; ungate zsmkit_clearisr
+	lda #$60
+	sta _bank1_zsmkit_setisr ; gate zsmkit_setisr
+
+	lda bank1_var_lowram
+	sta PTR
+	lda bank1_var_lowram+1
+	sta PTR+1
+
+	ldy #<(ISRBANK - __ZSMKIT_LOWRAM_LOAD__)
+	lda X16::Reg::RAMBank
+	sta (PTR),y
+
+	ldy #<((_old_isr + 1) - __ZSMKIT_LOWRAM_LOAD__)
+	lda X16::Vec::IRQVec
+	sta (PTR),y
+
+	iny
+	lda X16::Vec::IRQVec+1
+	sta (PTR),y
+
+	lda bank1_var_lowram
+	clc
+	adc #<(_isr - __ZSMKIT_LOWRAM_LOAD__)
+	sta X16::Vec::IRQVec
+	lda bank1_var_lowram+1
+	adc #0
+	sta X16::Vec::IRQVec+1
+
+	RESTORE_ZP_PTR
+
+	plp
+	rts
+
+;........................
+; bank1_zsmkit_clearisr :
+;============================================================================
+; Arguments: (none)
+; Returns: (none)
+; Preserves: (none)
+; Allowed in interrupt handler: no
+; ---------------------------------------------------------------------------
+;
+; Clears the default ISR handler if it exists and restores the previous one
+bank1_zsmkit_clearisr:
+	jsr _bank1_zsmkit_clearisr
+	jmp switch1to0
+
+_bank1_zsmkit_clearisr:
+	rts
+	php
+	sei
+
+	PRESERVE_ZP_PTR
+
+	lda #$60
+	sta _bank1_zsmkit_clearisr ; gate zsmkit_clearisr
+	lda #$ea
+	sta _bank1_zsmkit_setisr ; ungate zsmkit_setisr
+	lda bank1_var_lowram
+	clc
+	adc #<(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	sta PTR
+	lda bank1_var_lowram+1
+	adc #>(_old_isr - __ZSMKIT_LOWRAM_LOAD__ + 1)
+	sta PTR+1
+
+	lda (PTR)
+	sta X16::Vec::IRQVec
+	ldy #1
+	lda (PTR),y
+	sta X16::Vec::IRQVec+1
+
+	RESTORE_ZP_PTR
+
+	plp
+	rts
+
+;........................
+; bank1_calculate_speed :
+;============================================================================
+; Arguments: .X .Y = tick rate (lo hi)
+; Returns: .A .X .Y = speed (frac lo hi)
+; Preserves: (none)
+; Allowed in interrupt handler: yes
+; ---------------------------------------------------------------------------
+;
+; performs the calculation tick_rate_*/int_rate and stores in speed_*
+;
+.proc bank1_calculate_speed: near
+	php
+	sei
+	stx tmp1
+	tya
+	ora tmp1
+	bne :+
+	; set speed to 60 if ZSM says it's zero
+	ldx #60
 :
 	; initialize remainder to 0
 	stz tmp1
@@ -3773,14 +4054,12 @@ end:
 	; so that the quotient is a 16.8 fixed point result
 	stz tmp2
 	stz tmp2+1
-	lda tick_rate_l,x
-	sta tmp2+2
-	lda tick_rate_h,x
-	sta tmp2+3
+	stx tmp2+2
+	sty tmp2+3
 	; initialize divisor to int_rate (default 60.0)
-	lda int_rate_frac
+	lda bank1_var_int_rate_frac
 	sta tmp3
-	lda int_rate
+	lda bank1_var_int_rate
 	sta tmp3+1
 
 	; 32 bits in the dividend
@@ -3809,14 +4088,11 @@ l2:
 	ldx #$ff
 prio = * - 1
 	lda tmp2
-	sta speed_f,x
-	lda tmp2+1
-	sta speed_l,x
-	lda tmp2+2
-	sta speed_h,x
+	ldx tmp2+1
+	ldy tmp2+2
 
 	plp
-	rts
+	jmp switch1to0 ; return
 tmp1:
 	.byte 0,0
 tmp2:
@@ -3825,51 +4101,39 @@ tmp3:
 	.byte 0,0
 .endproc
 
-get_next_byte:
-	lda fetch_bank
-	jsr fetchbyte
-FETCHBYTEA = * - 2
-	inc PTR
-	bne gnb2
-	inc PTR+1
-validate_pt:
+.proc bank1_lda_pcmrate_slow_x: near
+	lda pcmrate_slow,x
+	jmp switch1to0
+.endproc
+
+.proc bank1_lda_pcmrate_fast_x: near
+	lda pcmrate_fast,x
+	jmp switch1to0
+.endproc
+
+; bank 1 go routines
+
+.proc go_bank0_sta_PTR_y
+	php ; preserve flags
+	sei
+	sta SAVED_A
+	pla ; get value of flags off of stack and store them inline below
+	sta SAVED_P
+	lda #>(bank0_sta_PTR_y-1)
 	pha
-	lda PTR+1
-	cmp #$c0
-	bcc gnb1
-	sbc #$20
-	sta PTR+1
-	inc fetch_bank
-gnb1:
-	pla
-gnb2:
-	rts
+	lda #<(bank0_sta_PTR_y-1)
+	pha
+cont:
+	lda #$ff ; flags
+SAVED_P = *-1
+	pha
+	lda #$ff ; .A register at entry
+SAVED_A = *-1
+	plp
+	jmp switch1to0
+.endproc
 
-times_8:
-.repeat NUM_PRIORITIES*2, i
-	.byte i*8
-.endrepeat
-
-times_16:
-.repeat NUM_PRIORITIES*2, i
-	.byte i*16
-.endrepeat
-
-times_64:
-.repeat NUM_PRIORITIES, i
-	.byte <(i*64)
-.endrepeat
-
-times_64h:
-.repeat NUM_PRIORITIES, i
-	.byte >(i*64)
-.endrepeat
-
-two_to_the_n:
-.repeat 8, i
-	.byte (1 << i)
-.endrepeat
-
+; bank 1 lookup tables
 ; ZSound-derived FIFO-fill LUTs
 pcmrate_fast: ; <<4 for 16+stereo, <<3 for 16|stereo, <<2 for 8+mono
 	.byte $03,$04,$06,$07,$09,$0B,$0C,$0E,$10,$11,$13,$15,$16,$17,$19,$1A
@@ -3890,6 +4154,31 @@ pcmrate_slow:
 	.byte $80,$82,$83,$85,$87,$88,$8A,$8B,$8D,$8F,$90,$92,$93,$95,$96,$98
 	.byte $9A,$9B,$9D,$9E,$A0,$A2,$A3,$A5,$A6,$A8,$AA,$AB,$AD,$AE,$B0,$B1
 	.byte $B3,$B5,$B6,$B8,$BA,$BC,$BE,$BF,$C1,$C2,$C4,$C6,$C7,$C9,$CA,$CC
+
+; These switch routines are ways to call into and return from the second bank without using low RAM
+; Calls from bank0 push the return address, then the call address, then jump to switch0to1
+;
+; Returns from bank1 simply jump to switch1to0 which will do the bank return.
+;
+; switch1to0 and switch0to1 have overlapping addresses but live in complementary banks.
+;
+; Calls can also go in the other direction.  switch1to0 and switch0to1 can either be for calls or returns.
+;
+; The PC is in banked RAM during the bank switch, but the next instruction is always `rts`.
+
+.segment "SWITCH0_TO_1"
+switch0to1:
+	inc X16::Reg::RAMBank
+	rts
+
+.segment "SWITCH1_TO_0"
+switch1to0:
+	dec X16::Reg::RAMBank
+	rts
+
+; build-time assembly checks
+
+.assert switch0to1 = switch1to0, error, "Cross bank trampoline functions must reside at the same address in both banks"
 
 .assert NUM_PRIORITIES <= 8, error, "Memory constraints restrict number of priorities to be <= 8"
 

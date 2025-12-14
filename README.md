@@ -3,7 +3,10 @@ Advanced music and sound effects engine for the Commander X16
 
 The minimum Commander X16 ROM release supported is R44.
 
-This is **ZSMKit v2**. If you're looking for the legacy version which supports streaming from disk, check out the [v1 branch](https://github.com/mooinglemur/zsmkit/tree/v1).
+This is **ZSMKit v3**.
+* This version requires **two** adjacent high RAM banks.
+* If you're looking for the version which fits in a single 8K high RAM bank, check out the [v2 branch](https://github.com/mooinglemur/zsmkit/tree/v2).
+* If you're looking for the legacy version which supports streaming from disk, check out the [v1 branch](https://github.com/mooinglemur/zsmkit/tree/v1).
 
 ## Overview
 
@@ -32,7 +35,7 @@ It also has these features that ZSound currently lacks:
 
 ## Support
 
-The main discussion area for help with ZSMKit is in the [Commander X16 Discord server](https://discord.gg/nS2PqEC) in the [ZSMKit channel](https://discord.com/channels/547559626024157184/1315189964077531177).
+The main discussion area for help with ZSMKit is in the [Commander X16 Discord server](https://discord.gg/nS2PqEC) in the [ZSMKit channel](https://discord.com/channels/547559626024157184/1315189964077531177). Bug reports can be opened as GitHub issues, or discussed in the Discord channel.
 
 ## Priority system
 
@@ -50,11 +53,11 @@ The behavior in the previous paragraph is however not a concern on VERA PSG as n
 
 ## Using in your project
 
-ZSMKit is distributed as a binary, meant to be loaded at `$A000` in any available high RAM bank. An include file `"zsmkit.inc"` is available for ca65 and similar assemblers which map the calls to a stable jump table starting at `$A000`.
+ZSMKit is distributed as a binary, meant to be loaded at `$A000` in any available high RAM bank. The library occupies two adjacent banks. An include file `"zsmkit.inc"` is available for ca65 and similar assemblers which map the calls to a stable jump table starting at `$A000` in the first of the two banks.
 
-1. Choose a RAM bank that ZSMKit will live in, switch to that RAM bank and load the `zsmkit-a000.bin` file from disk to $A000.
-2. Set aside 256 bytes of low RAM that ZSMKit is allowed to use.  Activate the ZSMKit RAM bank, and call `zsm_init_engine` with .X .Y (low, high) set to the address of this low RAM region.  A simple solution is to use part of the region between $400 and $7FF, but you can also designate any other 256 byte region in low ram that is not otherwise in use.
-3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the assigned ZSMKit bank before calling into the library.
+1. Choose the starting RAM bank that ZSMKit will live in, switch to that RAM bank and load the `zsmkit-a000.bin` file from disk to $A000. As the file is over 8KiB, the library will load into and partially consume a second bank, but all of the API calls will always be in the first (primary) bank.
+2. Set aside 256 bytes of low RAM that ZSMKit is allowed to use.  Activate the primary ZSMKit RAM bank, and call `zsm_init_engine` with .X .Y (low, high) set to the address of this low RAM region.  A simple solution is to use part of the region between $400 and $7FF, but you can also designate any other 256 byte region in low ram that is not otherwise in use. This value need not be page-aligned.
+3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the primary ZSMKit bank before calling into the library.
 
 ## Building from scratch
 
@@ -62,13 +65,13 @@ This requires the `cc65` suite to rebuild.
 
 To build the library, run  
 `make`  
-from the main project directory. This will create `lib/zsmkit-a000.bin`, which you can load in your project.
+from the main project directory. This will create `lib/zsmkit-a000.bin`, which you can load in your project. **Note that ZSMKit v3 spans into *two* high RAM banks!**
 
 You will likely want to include the file `src/zsmkit.inc` into your project as well for the library's label names.
 
 ## Calling the library from assembly
 
-All of the public API calls start at the beginning of the $A000 space 
+All of the public API calls start at the beginning of the $A000 space in the first of the two banks.
 
 ## API Quick Reference
 
@@ -353,7 +356,7 @@ Inputs: .X = priority
 Outputs: .X .Y (lo hi) = address
 ```
 
-This function returns a pointer to the location of the OPM KON shadow inside ZSMKit's RAM bank.
+This function returns a pointer to the location of the OPM KON shadow inside ZSMKit's primary RAM bank.
 The KON shadow is an 8-byte region of memory which contains the most recent KON event processed for each of the eight OPM channels in the requested priority.  The first byte is for OPM channel 0, and the last byte is for channel 7.
 
 The format of each shadow entry looks like this:
@@ -381,6 +384,8 @@ The format of each shadow entry looks like this:
 
 If any of the M1, C1, M2, or C2 bits are set, the key has been "pressed", but if all of those bits are clear, then the key is "released".
 
+Keys will show their intended state even if the channel is not available for the priority. For instance, if channels are suspended or if a higher priority song is playing and superseding some or all of the OPM channels for this priority, the key events will still appear here as if they were being pressed and released.
+
 The primary use case is for player visualizations.
 
 ---
@@ -390,7 +395,7 @@ Inputs: .X = priority
 Outputs: .X .Y (lo hi) = address
 ```
 
-This function returns a pointer to the OPM shadow inside ZSMKit's RAM bank.
+This function returns a pointer to the OPM shadow inside ZSMKit's primary RAM bank.
 The OPM shadow is a 256-byte region of memory which contains the most recent register write for the OPM chip in the requested priority.  Regardless of whether the priority owns the channel, the shadow is updated with the intended register write, whether or not it was written to the chip in real time.
 
 Internally, ZSMKit uses the OPM shadow to manage suspension and restoration of channel state.
@@ -404,7 +409,7 @@ Inputs: .X = priority
 Outputs: .X .Y (lo hi) = address
 ```
 
-This function returns a pointer to the VERA PSG shadow inside ZSMKit's RAM bank.
+This function returns a pointer to the VERA PSG shadow inside ZSMKit's primary RAM bank.
 The PSG shadow is a 64-byte region of memory which contains the most recent register write for the VERA PSG in the requested priority.  Regardless of whether the priority owns the channel, the shadow is updated with the intended register write, whether or not it was written to the chip in real time.
 
 Internally, ZSMKit uses the PSG shadow to manage suspension and restoration of channel state.
