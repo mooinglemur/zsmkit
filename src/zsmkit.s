@@ -6,7 +6,7 @@
 
 .macpack longbranch
 
-ZSMKIT_VERSION = $0207
+ZSMKIT_VERSION = $0208
 
 NUM_ZCM_SLOTS = 32
 NUM_PRIORITIES = 8
@@ -3602,13 +3602,19 @@ eox:
 .proc _zero_shadow: near
 	phx
 
-	lda #0
-	ldy times_16,x
-	ldx #64
-:	sta vera_psg_shadow,y
-	iny
+	lda times_64,x
+	clc
+	adc #<vera_psg_shadow
+	sta PSGPRIO
+	lda times_64h,x
+	adc #>vera_psg_shadow
+	sta PSGPRIO+1
+
+	ldx #63
+:	stz vera_psg_shadow,x
+PSGPRIO = * - 2
 	dex
-	bne :-
+	bpl :-
 
 	plx
 	phx
