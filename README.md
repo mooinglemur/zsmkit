@@ -229,9 +229,9 @@ Outputs: none
 ```
 Sets a new tick rate for the ZSM in this priority.
 
-Note: ZSMKit expects to have its tick subroutine called at approximately 60Hz. If a ZSM file contains PCM events, it's critical that ZSMKit's tick is run at approximately 60 times a second.
+Note: Unless changed by a call to `zsm_set_int_rate`, ZSMKit expects to have its tick subroutine called at approximately 60Hz. If a ZSM file contains PCM events, the PCM _must_ be ticked at approximately 60Hz. The music and PCM can have different tick rates. See `zsm_tick` for details.
 
-ZSM files have a tick rate which usually matches, at 60 Hz, but this isn't always the case.  ZSMKit will scale the tempo based on the ratio between the ZSM's tick rate and 60 Hz. `zsm_setrate` can be used to override the value in the ZSM. It's mainly useful for changing the tempo of a song.
+ZSM files have a tick rate which usually matches, at 60 Hz, but this isn't always the case.  ZSMKit will scale the tempo based on the ratio between the ZSM's tick rate and 60 Hz (or the value given to `zsm_set_int_rate`). `zsm_setrate` can be used to override the value in the ZSM. It's mainly useful for changing the tempo of a song.
 
 ---
 
