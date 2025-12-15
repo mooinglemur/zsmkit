@@ -39,9 +39,9 @@ The main discussion area for help with ZSMKit is in the [Commander X16 Discord s
 
 ## Priority system
 
-In the code and documentation, a song slot is also known as a **priority**. There are eight priorities, numbered from 0 to 7.
+In the code and documentation, a song slot is also known as a **priority**. There are eight priorities, numbered from 0 to 7. Perhaps contrary to intuition, lower number means lower priority, as higher number means higher priority.
 
-Priority 0 is the lowest priority, and thus can be interrupted by any other priority. It would typically used for playback of background game music, as an example.  Priority 0 is also the only slot in which LFO parameters are honored (YM2151 registers < $20)
+Priority 0 is the lowest priority, and thus can be interrupted by any other priority. It would typically used for playback of background game music, as an example.  Priority 0 is also the only slot in which LFO parameters are honored (YM2151 registers < $20).
 
 Priorities 1-7 would typically be used for short jingles and sound effects. Priorities 4-7 handle VERA PSG and PCM events but lack support for YM2151 events.
 
@@ -57,7 +57,7 @@ ZSMKit is distributed as a binary, meant to be loaded at `$A000` in any availabl
 
 1. Choose the starting RAM bank that ZSMKit will live in, switch to that RAM bank and load the `zsmkit-a000.bin` file from disk to $A000. As the file is over 8KiB, the library will load into and partially consume a second bank, but all of the API calls will always be in the first (primary) bank.
 2. Set aside 256 bytes of low RAM that ZSMKit is allowed to use.  Activate the primary ZSMKit RAM bank, and call `zsm_init_engine` with .X .Y (low, high) set to the address of this low RAM region.  A simple solution is to use part of the region between $400 and $7FF, but you can also designate any other 256 byte region in low ram that is not otherwise in use. This value need not be page-aligned.
-3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the primary ZSMKit bank before calling into the library.
+3. Use the rest of the ZSMKit API to set up and play back songs, taking care to activate the primary ZSMKit RAM bank before calling into the library.
 
 ## Building from scratch
 
