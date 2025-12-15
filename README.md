@@ -463,7 +463,7 @@ Inputs: .X = priority
         .C = if set, mute; if clear, unmute
 ```
 
-This function will mute or unmute a song priority. Unlike using `zsm_setatten` to mute a song my reducing its effective volume to nil, this routine _releases the use of all channels_, allowing other priorities to use the channels, including lower ones.
+This function will mute or unmute a song priority. Unlike using `zsm_setatten` to mute a song my reducing its effective volume to nil, this routine _releases the use of all channels_, allowing other priorities, including lower ones, to use the channels.
 
 If a song is playing, it will continue to advance while keeping the intended channel state internally.
 
