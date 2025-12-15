@@ -163,7 +163,7 @@ Inputs: .X = priority, .A = attenuation value
 
 Changes the master volume of a priority slot by setting an attenuation value. A value of $00 implies no attenuation (full volume) and a value of $3F is full mute.
 
-Attenuation is set on all active channels for the priority, and will also affect PCM events played on the priority. The YM2151's attenuation (0.75 dB native) is scaled lower so that it matches the 0.5 dB per step of the VERA PSG. PCM attenuation is scaled to 1/4 the input value.
+Attenuation is set on all active channels for the priority, and will also affect PCM events played on the priority. The YM2151's attenuation (0.75 dB native) is scaled lower so that it matches the 0.5 dB per step of the VERA PSG. PCM attenuation is scaled to approximately 1/4 the input value.
 
 ---
 
@@ -455,6 +455,19 @@ This action is GLOBAL, and will prevent ZSMKit from touching registers for this 
 While PCM is suspended, ZSMKit will not play ZCM files either.
 
 Suspension is useful to allow for programmed sound effects to play independent of ZSMKit.
+
+---
+#### `zsm_mute` - `$A072`
+```
+Inputs: .X = priority
+        .C = if set, mute; if clear, unmute
+```
+
+This function will mute or unmute a song priority. Unlike using `zsm_setatten` to mute a song my reducing its effective volume to nil, this routine _releases the use of all channels_, allowing other priorities to use the channels, including lower ones.
+
+If a song is playing, it will continue to advance while keeping the intended channel state internally.
+
+If the priority is not playing, the mute state can still be set or unset, and will persist even through song changes.
 
 ---
 

@@ -2769,6 +2769,7 @@ exit:
 ; ---------------------------------------------------------------------------
 ;
 ; stops sound on all channels in the current priority, used by zsm_stop
+; and when song ends on its own during playback
 .proc _stop_sound: near
 	stx PR
 
@@ -2812,6 +2813,8 @@ opmnext:
 	sta Vera::Reg::AudioCtrl
 	stz pcm_busy
 no_pcm_halt:
+	; MIDI channel release order goes
+	; channel 8, 16, 7, 15, etc.
 	ldy #7
 midiloop:
 	lda two_to_the_n,y
@@ -2824,6 +2827,7 @@ after_low:
 	lda two_to_the_n,y
 	and midi_channel_mask_l,x
 	beq after_high
+	; release notes on MIDI channel 9-16
 	tya
 	clc
 	adc #8
