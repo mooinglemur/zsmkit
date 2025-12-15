@@ -91,7 +91,7 @@ This routine *must* be called once before any other library routines are called 
 ```
 Inputs: .A = MIDI device I/O base offset from $9F00, 0 to disable
         .X = serial/parallel toggle
-        .C = callback flag
+         c = callback flag
 ```
 This function initializes ZSMKit's MIDI event handler and informs ZSMKit of the IO address of the MIDI device.  If this function is never called after `zsm_init_engine`, MIDI events in ZSMs are ignored.
 
@@ -210,7 +210,7 @@ Note: The callback settings for a priority are not cleared if the priority switc
 #### `zsm_getstate` - `$A02A`
 ```
 Inputs: .X = priority
-Outputs: .C = playing, Z = not playable, .A .Y = (lo hi) loop counter
+Outputs: c = playing, z = not playable, .A .Y = (lo hi) loop counter
 ```
 Returns the playback state of a priority.
 
@@ -248,7 +248,7 @@ Returns the value of the tick rate for the ZSM in this priority.
 
 #### `zsm_setloop` - `$A033`
 ```
-Inputs: .X = priority, .C = whether to loop
+Inputs: .X = priority, c = whether to loop
 Outputs: none
 ```
 If carry is set, enable the looping behaivor. If carry is clear, disable looping.
@@ -333,7 +333,7 @@ This function clears the on-deck song previously set by `zsm_set_ondeck_mem`.  I
 #### `zsm_getloop` - `$A012`
 ```
 Inputs: .X = priority
-Outputs: .C = looped flag, .A = bank, .X .Y (lo hi) = address
+Outputs: c = looped flag, .A = bank, .X .Y (lo hi) = address
 ```
 If the requested priority is playable and has a loop point, this function will return the address and bank of the loop point in registers, with carry clear.
 
@@ -343,7 +343,7 @@ If the priority is not playable or not looped, the function will return with car
 #### `zsm_getptr` - `$A015`
 ```
 Inputs: .X = priority
-Outputs: .C = looped flag, .A = bank, .X .Y (lo hi) = address
+Outputs: c = looped flag, .A = bank, .X .Y (lo hi) = address
 ```
 If the requested priority is playable, this function will return the address and bank of the playback cursor in registers, with carry clear.
 
@@ -420,7 +420,7 @@ Exposing the memory location via this function is mainly useful for player visua
 #### `zsm_psg_suspend` - `$A069`
 ```
 Inputs: .Y = channel (0-15)
-        .C = if set, suspend; if clear, release
+         c = if set, suspend; if clear, release
 ```
 
 This function suspends or restores ZSMKit's use of a VERA PSG channel.
@@ -433,7 +433,7 @@ Suspension is useful to allow for programmed sound effects to play independent o
 #### `zsm_opm_suspend` - `$A06C`
 ```
 Inputs: .Y = channel (0-7)
-        .C = if set, suspend; if clear, release
+         c = if set, suspend; if clear, release
 ```
 
 This function suspends or restores ZSMKit's use of an OPM channel.
@@ -445,7 +445,7 @@ Suspension is useful to allow for programmed sound effects to play independent o
 ---
 #### `zsm_pcm_suspend` - `$A06F`
 ```
-Inputs: .C = if set, suspend; if clear, release
+Inputs:  c = if set, suspend; if clear, release
 ```
 
 This function suspends or restores ZSMKit's use of the VERA PCM channel.
@@ -460,7 +460,7 @@ Suspension is useful to allow for programmed sound effects to play independent o
 #### `zsm_mute` - `$A072`
 ```
 Inputs: .X = priority
-        .C = if set, mute; if clear, unmute
+         c = if set, mute; if clear, unmute
 ```
 
 This function will mute or unmute a song priority. Unlike using `zsm_setatten` to mute a song my reducing its effective volume to nil, this routine _releases the use of all channels_, allowing other priorities, including lower ones, to use the channels.
